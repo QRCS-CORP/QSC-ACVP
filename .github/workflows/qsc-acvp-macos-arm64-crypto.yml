@@ -68,7 +68,7 @@ jobs:
           {
             uname -a
             sysctl -n machdep.cpu.brand_string 2>/dev/null || true
-            for feature in hw.optional.arm64 hw.optional.AdvSIMD hw.optional.arm.FEAT_AES hw.optional.arm.FEAT_PMULL hw.optional.arm.FEAT_SHA256; do
+            for feature in hw.optional.arm64 hw.optional.arm.FEAT_AES hw.optional.arm.FEAT_PMULL hw.optional.arm.FEAT_SHA256; do
               value="$(sysctl -n "$feature" 2>/dev/null || true)"
               printf '%s=%s\n' "$feature" "$value"
               if [[ "$value" != 1 ]]; then
@@ -76,6 +76,15 @@ jobs:
                 exit 1
               fi
             done
+            # Advanced SIMD (NEON) is mandatory on Apple Silicon ARM64, but
+            # some macOS runners do not expose hw.optional.AdvSIMD.
+            simd="$(sysctl -n hw.optional.AdvSIMD 2>/dev/null || true)"
+            if [[ -n "$simd" && "$simd" != 1 ]]; then
+              echo 'FAIL: macOS explicitly reports Advanced SIMD unavailable' >&2
+              exit 1
+            fi
+            printf 'hw.optional.AdvSIMD=%s\n' "${simd:-NOT_EXPORTED_ARM64_BASELINE}"
+            echo 'NEON is checked again through QSC compilation macros and native disassembly.'
           } > "$evidence/cpu-features.txt"
           command -v ninja >/dev/null
           xcrun --find llvm-objdump >/dev/null
