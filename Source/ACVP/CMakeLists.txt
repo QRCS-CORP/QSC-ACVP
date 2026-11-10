@@ -54,20 +54,43 @@ if(NOT QSC_ACVP_ISA_PROFILE STREQUAL "default")
     if(QSC_ACVP_ISA_PROFILE STREQUAL "scalar")
         set(QSC_ACVP_PROFILE_REQUIREMENTS [[
 #include "qsccommon.h"
-#if defined(QSC_SYSTEM_AVX_INTRINSICS) || defined(QSC_SYSTEM_AESNI_ENABLED) || \
-    defined(QSC_SYSTEM_HAS_PCLMUL) || defined(QSC_SHA2_SHANI_ENABLED) || \
-    defined(QSC_SYSTEM_RCS_AESNI_ENABLED) || defined(QSC_RDRAND_COMPATIBLE) || \
-    defined(QSC_SYSTEM_HAS_VAES512)
-#error "QSC scalar qualification selected hardware cryptographic intrinsics"
+#if defined(QSC_SYSTEM_AVX_INTRINSICS)
+#error "Scalar profile selected x86 AVX intrinsics"
+#endif
+#if defined(QSC_SYSTEM_AESNI_ENABLED)
+#error "Scalar profile selected AES-NI"
+#endif
+#if defined(QSC_SYSTEM_HAS_PCLMUL)
+#error "Scalar profile selected PCLMULQDQ"
+#endif
+#if defined(QSC_SHA2_SHANI_ENABLED)
+#error "Scalar profile selected SHA-NI"
+#endif
+#if defined(QSC_SYSTEM_RCS_AESNI_ENABLED)
+#error "Scalar profile selected RCS AES-NI"
+#endif
+#if defined(QSC_RDRAND_COMPATIBLE)
+#error "Scalar profile selected RDRAND"
+#endif
+#if defined(QSC_SYSTEM_HAS_VAES512)
+#error "Scalar profile selected VAES-512"
 #endif
 int main(void) { return 0; }
 ]])
     else()
         set(QSC_ACVP_PROFILE_REQUIREMENTS [[
 #include "qsccommon.h"
-#if !defined(QSC_SYSTEM_HAS_AVX2) || !defined(QSC_SYSTEM_AESNI_ENABLED) || \
-    !defined(QSC_SYSTEM_HAS_PCLMUL) || defined(QSC_SYSTEM_HAS_AVX512)
-#error "QSC AVX2/AES-NI qualification profile not selected"
+#if !defined(QSC_SYSTEM_HAS_AVX2)
+#error "AVX2 profile did not select AVX2"
+#endif
+#if !defined(QSC_SYSTEM_AESNI_ENABLED)
+#error "AVX2 profile did not select AES-NI"
+#endif
+#if !defined(QSC_SYSTEM_HAS_PCLMUL)
+#error "AVX2 profile did not select PCLMULQDQ"
+#endif
+#if defined(QSC_SYSTEM_HAS_AVX512)
+#error "AVX2 profile unexpectedly selected AVX-512"
 #endif
 int main(void) { return 0; }
 ]])
