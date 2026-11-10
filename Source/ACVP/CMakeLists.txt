@@ -13,9 +13,9 @@ endif()
 
 # ISA profiles affect the isolated ACVP build only; never change production QSC.
 set(QSC_ACVP_ISA_PROFILE "default" CACHE STRING
-    "Isolated ACVP instruction-set profile: default, scalar, avx2-aesni, or msvc-avx2")
-set_property(CACHE QSC_ACVP_ISA_PROFILE PROPERTY STRINGS default scalar avx2-aesni msvc-avx2)
-if(NOT QSC_ACVP_ISA_PROFILE MATCHES "^(default|scalar|avx2-aesni|msvc-avx2)$")
+    "Isolated ACVP instruction-set profile: default, scalar, avx2-aesni, msvc-avx2, or arm64-crypto")
+set_property(CACHE QSC_ACVP_ISA_PROFILE PROPERTY STRINGS default scalar avx2-aesni msvc-avx2 arm64-crypto)
+if(NOT QSC_ACVP_ISA_PROFILE MATCHES "^(default|scalar|avx2-aesni|msvc-avx2|arm64-crypto)$")
     message(FATAL_ERROR "Unsupported QSC_ACVP_ISA_PROFILE: ${QSC_ACVP_ISA_PROFILE}")
 endif()
 
@@ -29,6 +29,14 @@ if(NOT QSC_ACVP_ISA_PROFILE STREQUAL "default")
             message(FATAL_ERROR "msvc-avx2 requires Windows x64 with native MSVC")
         endif()
         set(QSC_ACVP_ISA_FLAGS /arch:AVX2)
+    elseif(QSC_ACVP_ISA_PROFILE STREQUAL "arm64-crypto")
+        if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+            message(FATAL_ERROR "arm64-crypto requires an AArch64 target")
+        endif()
+        if(NOT CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang)$")
+            message(FATAL_ERROR "arm64-crypto requires GCC or Clang")
+        endif()
+        set(QSC_ACVP_ISA_FLAGS -march=armv8-a+crypto)
     else()
         if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
             message(FATAL_ERROR "${QSC_ACVP_ISA_PROFILE} requires an x86-64 target")
@@ -84,6 +92,29 @@ if(NOT QSC_ACVP_ISA_PROFILE STREQUAL "default")
 #endif
 #if defined(QSC_SYSTEM_HAS_VAES512)
 #error "Scalar profile selected VAES-512"
+#endif
+int main(void) { return 0; }
+]])
+    elseif(QSC_ACVP_ISA_PROFILE STREQUAL "arm64-crypto")
+        set(QSC_ACVP_PROFILE_REQUIREMENTS [[
+#include "qsccommon.h"
+#if !defined(QSC_SYSTEM_ARCH_ARM64)
+#error "ARM64 crypto profile did not select ARM64"
+#endif
+#if !defined(QSC_SYSTEM_ARM_INTRINSICS)
+#error "ARM64 crypto profile did not select ARM Advanced SIMD"
+#endif
+#if !defined(QSC_SYSTEM_HAS_ARM_NEON)
+#error "ARM64 crypto profile did not select NEON"
+#endif
+#if !defined(QSC_SYSTEM_ARM_AES_ENABLED)
+#error "ARM64 crypto profile did not select AES and PMULL"
+#endif
+#if !defined(QSC_SYSTEM_ARM_SHA256_ENABLED)
+#error "ARM64 crypto profile did not select SHA256 acceleration"
+#endif
+#if defined(QSC_SYSTEM_AVX_INTRINSICS)
+#error "ARM64 crypto profile unexpectedly selected x86 AVX"
 #endif
 int main(void) { return 0; }
 ]])
