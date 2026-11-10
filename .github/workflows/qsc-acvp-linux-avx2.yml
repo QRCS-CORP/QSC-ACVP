@@ -134,7 +134,7 @@ jobs:
             echo 'FAIL: compiled AES library lacks AES-NI aesenc instruction' >&2
             exit 1
           fi
-          if ! grep -Eq '[[:space:]]pclmulqdq[[:space:]]' "$RUNNER_TEMP/qsc-acvp-aes-disassembly.txt"; then
+          if ! grep -Eq '[[:space:]]pclmul[a-z0-9]*[[:space:]]' "$RUNNER_TEMP/qsc-acvp-aes-disassembly.txt"; then
             echo 'FAIL: compiled AES library lacks PCLMULQDQ instruction' >&2
             exit 1
           fi
