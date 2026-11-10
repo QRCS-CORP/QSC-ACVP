@@ -41,7 +41,7 @@ jobs:
           path: dependency/QSC
           persist-credentials: false
 
-      - name: Verify QSC revision and native x64 runner
+      - name: Verify QSC revision and native ARM64 runner
         shell: bash
         env:
           QSC_REQUESTED_SHA: ${{ inputs.qsc_ref }}
@@ -208,7 +208,7 @@ jobs:
           build_evidence = (evidence / 'build-configuration.txt').is_file()
           success = all(item['pass'] for item in results.values()) and cpu_evidence and isa_evidence and build_evidence
           record = {
-              'type': 'QSC_OFFLINE_SCALAR_BOOTSTRAP_NOT_ACVTS',
+              'type': 'QSC_LINUX_ARM64_CRYPTO_OFFLINE_BOOTSTRAP_NOT_ACVTS',
               'timestamp_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
               'qsc_git_sha': os.environ.get('QSC_DEPENDENCY_SHA', 'NOT_RECORDED'),
               'qualification_git_sha': os.environ.get('GITHUB_SHA', 'NOT_RECORDED'),
@@ -233,7 +233,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qsc-acvp-linux-x64-arm64-crypto-offline
+          name: qsc-acvp-linux-arm64-crypto-offline
           path: ${{ runner.temp }}/qsc-acvp-arm64-crypto-evidence/
           if-no-files-found: error
           retention-days: 14
