@@ -8,7 +8,7 @@ QSC is checked out as an **external read-only dependency**, pinned separately fo
 
 The [Linux x64 scalar offline bootstrap](.github/workflows/qsc-acvp-linux-scalar.yml) is **manually dispatched** on a standard Ubuntu 24.04 GitHub-hosted runner. It accepts an immutable 40-character QSC commit SHA (default `43c8aa2afe9d38c3ddf9bac0107196545981ac28`), checks the scalar compilation macros, builds native SHA/AES adapters, runs offline SHA/HMAC, XOF, KDF and AES tests, and retains sanitized evidence for 14 days.
 
-The [Linux x64 AVX2/AES-NI offline bootstrap](.github/workflows/qsc-acvp-linux-avx2.yml) runs separately after the scalar evidence is reviewed. The [Windows x64 MSVC AVX2 offline bootstrap](.github/workflows/qsc-acvp-windows-msvc-avx2.yml) is the next separately dispatched profile. Each accelerated profile verifies hosted CPU features and compiled instruction presence before offline tests. Windows uses native MSVC with `/arch:AVX2`; it must be validated independently and may initially expose compiler-specific qualification issues. A successful offline bootstrap is **not** a complete library qualification, a NIST ACVTS verdict, a Demo validation, a production CAVP certificate, or FIPS 140-3 validation. Neither workflow uses NIST credentials.
+The [Linux x64 AVX2/AES-NI](.github/workflows/qsc-acvp-linux-avx2.yml), [Windows x64 MSVC AVX2](.github/workflows/qsc-acvp-windows-msvc-avx2.yml), and [Linux ARM64 NEON/AES/PMULL](.github/workflows/qsc-acvp-linux-arm64-crypto.yml) workflows run independently, in that order, after evidence from each preceding profile is reviewed. The ARM64 profile uses a native `ubuntu-24.04-arm` GitHub-hosted runner and `-march=armv8-a+crypto`, checks native CPU capabilities, and inspects compiled ARM instructions. Each workflow requires manual dispatch and records independent results. A successful offline bootstrap is **not** complete QSC qualification, a NIST ACVTS verdict, a Demo validation, a production CAVP certificate, or FIPS 140-3 validation. None of these workflows uses NIST credentials.
 
 ## Repository layout
 
@@ -29,7 +29,7 @@ cmake --build /var/tmp/qsc-acvp-build --target qsc_acvp_hash qsc_acvp_aes --para
 python3 -m unittest discover -s Source/ACVP/tests -p test_demo_client.py -v
 ```
 
-The explicit scalar profile requires x64 GCC or Clang. Future Linux AVX2, Windows and ARM64 workflows will run independently and only after the preceding profile's evidence has been reviewed.
+The explicit scalar profile requires x64 GCC or Clang. Windows MSVC AVX2 and Linux ARM64 crypto compile targets are independently selected and require compatible native GitHub-hosted runners. Qualification job completion and the original source revision must be recorded for every profile.
 
 ## Licensing
 
