@@ -13,28 +13,38 @@ endif()
 
 # ISA profiles affect the isolated ACVP build only; never change production QSC.
 set(QSC_ACVP_ISA_PROFILE "default" CACHE STRING
-    "Isolated ACVP instruction-set profile: default, scalar, or avx2-aesni")
-set_property(CACHE QSC_ACVP_ISA_PROFILE PROPERTY STRINGS default scalar avx2-aesni)
-if(NOT QSC_ACVP_ISA_PROFILE MATCHES "^(default|scalar|avx2-aesni)$")
+    "Isolated ACVP instruction-set profile: default, scalar, avx2-aesni, or msvc-avx2")
+set_property(CACHE QSC_ACVP_ISA_PROFILE PROPERTY STRINGS default scalar avx2-aesni msvc-avx2)
+if(NOT QSC_ACVP_ISA_PROFILE MATCHES "^(default|scalar|avx2-aesni|msvc-avx2)$")
     message(FATAL_ERROR "Unsupported QSC_ACVP_ISA_PROFILE: ${QSC_ACVP_ISA_PROFILE}")
 endif()
 
 set(QSC_ACVP_ISA_FLAGS "")
 if(NOT QSC_ACVP_ISA_PROFILE STREQUAL "default")
-    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
-        message(FATAL_ERROR "${QSC_ACVP_ISA_PROFILE} requires an x86-64 target")
+    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "${QSC_ACVP_ISA_PROFILE} requires a 64-bit target")
     endif()
-    if(NOT CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang)$")
-        message(FATAL_ERROR "${QSC_ACVP_ISA_PROFILE} requires GCC or Clang")
-    endif()
-    if(QSC_ACVP_ISA_PROFILE STREQUAL "scalar")
-        # SSE2 remains the x64 ABI baseline. Disable selected cryptographic intrinsics.
-        set(QSC_ACVP_ISA_FLAGS
-            -mno-avx -mno-avx2 -mno-avx512f -mno-aes -mno-pclmul
-            -mno-sha -mno-rdrnd -mno-ssse3 -mno-sse4.1 -mno-sse4.2)
+    if(QSC_ACVP_ISA_PROFILE STREQUAL "msvc-avx2")
+        if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64)$")
+            message(FATAL_ERROR "msvc-avx2 requires Windows x64 with native MSVC")
+        endif()
+        set(QSC_ACVP_ISA_FLAGS /arch:AVX2)
     else()
-        set(QSC_ACVP_ISA_FLAGS
-            -mavx2 -maes -mpclmul -mssse3 -msse4.1 -mno-avx512f)
+        if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+            message(FATAL_ERROR "${QSC_ACVP_ISA_PROFILE} requires an x86-64 target")
+        endif()
+        if(NOT CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang)$")
+            message(FATAL_ERROR "${QSC_ACVP_ISA_PROFILE} requires GCC or Clang")
+        endif()
+        if(QSC_ACVP_ISA_PROFILE STREQUAL "scalar")
+            # SSE2 remains the x64 ABI baseline. Disable selected cryptographic intrinsics.
+            set(QSC_ACVP_ISA_FLAGS
+                -mno-avx -mno-avx2 -mno-avx512f -mno-aes -mno-pclmul
+                -mno-sha -mno-rdrnd -mno-ssse3 -mno-sse4.1 -mno-sse4.2)
+        else()
+            set(QSC_ACVP_ISA_FLAGS
+                -mavx2 -maes -mpclmul -mssse3 -msse4.1 -mno-avx512f)
+        endif()
     endif()
     add_compile_options(${QSC_ACVP_ISA_FLAGS})
 endif()
