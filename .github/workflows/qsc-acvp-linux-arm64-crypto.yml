@@ -1,0 +1,253 @@
+# Standalone manual-only ACVP qualification workflow; no scheduled or push triggers.
+name: QSC ACVP Linux ARM64 NEON crypto offline bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      qsc_ref:
+        description: 'Immutable 40-character QSC source commit to qualify'
+        type: string
+        required: true
+        default: 43c8aa2afe9d38c3ddf9bac0107196545981ac28
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-sequential-qualification
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  linux-arm64-crypto:
+    name: Linux ARM64 NEON crypto offline SHA/AES bootstrap
+    if: github.repository == 'QRCS-CORP/QSC-ACVP'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - name: Checkout reviewed qualification revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Checkout pinned QSC dependency (read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: QRCS-CORP/QSC
+          ref: ${{ inputs.qsc_ref }}
+          path: dependency/QSC
+          persist-credentials: false
+
+      - name: Verify QSC revision and native x64 runner
+        shell: bash
+        env:
+          QSC_REQUESTED_SHA: ${{ inputs.qsc_ref }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          if [[ ! "$QSC_REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'QSC source must be pinned to an immutable 40-character SHA' >&2
+            exit 1
+          fi
+          sha="$(git -C dependency/QSC rev-parse HEAD)"
+          test "$sha" = "$QSC_REQUESTED_SHA"
+          printf 'QSC_DEPENDENCY_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
+          printf 'QSC source commit: %s\n' "$sha"
+          printf 'Qualification commit: %s\n' "$(git rev-parse HEAD)"
+          cc --version | head -n 1
+
+      - name: Verify native ARM64 NEON and crypto-extension CPU support
+        shell: bash
+        run: |
+          set -euo pipefail
+          features="$(grep -m1 -E '^(Features|flags)[[:space:]]*:' /proc/cpuinfo)"
+          test -n "$features"
+          for feature in asimd aes pmull sha2; do
+            if ! grep -qw "$feature" <<< "$features"; then
+              printf 'FAIL: ARM64 runner lacks CPU feature: %s\n' "$feature" >&2
+              exit 1
+            fi
+          done
+          evidence="$RUNNER_TEMP/qsc-acvp-arm64-crypto-evidence"
+          mkdir -p "$evidence"
+          {
+            uname -a
+            printf 'Required verified CPU features: asimd aes pmull sha2\n'
+            printf '%s\n' "$features"
+          } > "$evidence/cpu-features.txt"
+          echo 'PASS: ARM64 runner supports NEON, AES, PMULL and SHA2'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned independent qualification oracle
+        run: python -m pip install --disable-pip-version-check cryptography==46.0.4
+
+      - name: Configure arm64-crypto implementation and verify feature macros
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -S Source/ACVP -B "$RUNNER_TEMP/qsc-acvp-arm64-crypto-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQSC_ACVP_TLS_CLASS=3 \
+            -DQSC_ACVP_ISA_PROFILE=arm64-crypto
+          grep -q '^QSC_ACVP_PROFILE_MACROS_VERIFIED:INTERNAL=1$' \
+            "$RUNNER_TEMP/qsc-acvp-arm64-crypto-build/CMakeCache.txt"
+
+      - name: Record source and compiler configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/qsc-acvp-arm64-crypto-evidence"
+          mkdir -p "$evidence"
+          {
+            printf 'QSC source commit: %s\n' "$QSC_DEPENDENCY_SHA"
+            printf 'Qualification source commit: %s\n' "$GITHUB_SHA"
+            printf 'OS: %s\n' "$(uname -s)"
+            printf 'Architecture: %s\n' "$(uname -m)"
+            printf 'ISA profile: arm64-crypto\nSecurity class: 3\n'
+            cc --version | head -n 1
+            grep -E '^(QSC_ACVP_ISA_PROFILE|QSC_ACVP_TLS_CLASS|QSC_ACVP_PROFILE_MACROS_VERIFIED):' \
+              "$RUNNER_TEMP/qsc-acvp-arm64-crypto-build/CMakeCache.txt"
+          } > "$evidence/build-configuration.txt"
+
+      - name: Build SHA and AES native adapters
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build "$RUNNER_TEMP/qsc-acvp-arm64-crypto-build" \
+            --target qsc_acvp_hash qsc_acvp_aes --parallel 2
+
+      - name: Verify compiled ARM AES, PMULL, SHA256 and NEON instructions
+        shell: bash
+        run: |
+          set -euo pipefail
+          build="$RUNNER_TEMP/qsc-acvp-arm64-crypto-build"
+          evidence="$RUNNER_TEMP/qsc-acvp-arm64-crypto-evidence"
+          objdump -d "$build/libqsc_acvp_aes.so" > "$RUNNER_TEMP/qsc-acvp-arm64-aes-disassembly.txt"
+          objdump -d "$build/libqsc_acvp_hash.so" > "$RUNNER_TEMP/qsc-acvp-arm64-hash-disassembly.txt"
+          if ! grep -Eq '[[:space:]]aese[[:space:]]+v[0-9]+' "$RUNNER_TEMP/qsc-acvp-arm64-aes-disassembly.txt"; then
+            echo 'FAIL: ARM64 AES library lacks an AESE instruction' >&2
+            exit 1
+          fi
+          if ! grep -Eq '[[:space:]]pmull[[:space:]]+v[0-9]+' "$RUNNER_TEMP/qsc-acvp-arm64-aes-disassembly.txt"; then
+            echo 'FAIL: ARM64 AES library lacks a PMULL instruction' >&2
+            exit 1
+          fi
+          if ! grep -Eq '[[:space:]]sha256h[[:space:]]+' "$RUNNER_TEMP/qsc-acvp-arm64-hash-disassembly.txt"; then
+            echo 'FAIL: ARM64 SHA library lacks a SHA256H instruction' >&2
+            exit 1
+          fi
+          if ! grep -Eq '[[:space:]]eor[[:space:]]+v[0-9]+' "$RUNNER_TEMP/qsc-acvp-arm64-hash-disassembly.txt"; then
+            echo 'FAIL: ARM64 SHA3 library lacks expected NEON EOR instruction' >&2
+            exit 1
+          fi
+          {
+            echo 'ARM AES AESE instruction: PRESENT in libqsc_acvp_aes.so'
+            echo 'ARM carryless-multiply PMULL instruction: PRESENT in libqsc_acvp_aes.so'
+            echo 'ARM SHA256H instruction: PRESENT in libqsc_acvp_hash.so'
+            echo 'ARM NEON vector EOR instruction: PRESENT in libqsc_acvp_hash.so'
+            echo 'Static instruction presence does not prove dynamic execution coverage.'
+          } > "$evidence/isa-evidence.txt"
+          echo 'PASS: native ARM64 accelerated instruction evidence present'
+
+      - name: Run ACVP client parser and transport regression tests
+        run: python -m unittest discover -s Source/ACVP/tests -p test_demo_client.py -v
+
+      - name: Run consolidated evidence regression tests
+        run: python -m unittest discover -s Source/ACVP/tests -p test_consolidation.py -v
+
+      - name: Run SHA and HMAC offline qualification
+        run: python Source/ACVP/local_check.py --library "$RUNNER_TEMP/qsc-acvp-arm64-crypto-build/libqsc_acvp_hash.so" --output "$RUNNER_TEMP/qsc-acvp-arm64-crypto-evidence"
+
+      - name: Run SP 800-185 XOF offline qualification
+        run: python Source/ACVP/xof_check.py --library "$RUNNER_TEMP/qsc-acvp-arm64-crypto-build/libqsc_acvp_hash.so" --output "$RUNNER_TEMP/qsc-acvp-arm64-crypto-evidence"
+
+      - name: Run PBKDF and HKDF offline qualification
+        run: python Source/ACVP/kdf_check.py --library "$RUNNER_TEMP/qsc-acvp-arm64-crypto-build/libqsc_acvp_hash.so" --output "$RUNNER_TEMP/qsc-acvp-arm64-crypto-evidence"
+
+      - name: Run AES interoperability qualification
+        run: python Source/ACVP/aes_check.py --library "$RUNNER_TEMP/qsc-acvp-arm64-crypto-build/libqsc_acvp_aes.so" --output "$RUNNER_TEMP/qsc-acvp-arm64-crypto-evidence"
+
+      - name: Generate sanitized evidence manifest
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'qsc-acvp-arm64-crypto-evidence'
+          evidence.mkdir(parents=True, exist_ok=True)
+          files = {
+              'sha_hmac': ('local-sha-vectors.json', 'LOCAL_SIMULATOR_NOT_NIST'),
+              'xof': ('xof-acvp-adapter-results.json', 'PASS_LOCAL_ADAPTER_ONLY'),
+              'kdf': ('kdf-acvp-adapter-results.json', 'PASS_LOCAL_ADAPTER_ONLY'),
+              'aes': ('aes-results.json', 'PASS_LOCAL_INTEROPERABILITY'),
+          }
+          results = {}
+          for name, (filename, expected) in files.items():
+              try:
+                  data = json.loads((evidence / filename).read_text(encoding='utf-8'))
+                  status = data.get('status', 'MISSING')
+                  passed = status == expected
+                  if name == 'sha_hmac':
+                      cases = data.get('results', [])
+                      passed = passed and len(cases) == 10 and all(case.get('passed') for case in cases)
+              except (OSError, ValueError, AttributeError, TypeError):
+                  status, passed = 'NOT_RUN_OR_UNREADABLE', False
+              results[name] = {'status': status, 'pass': bool(passed)}
+          cpu_evidence = (evidence / 'cpu-features.txt').is_file()
+          isa_evidence = (evidence / 'isa-evidence.txt').is_file()
+          build_evidence = (evidence / 'build-configuration.txt').is_file()
+          success = all(item['pass'] for item in results.values()) and cpu_evidence and isa_evidence and build_evidence
+          record = {
+              'type': 'QSC_OFFLINE_SCALAR_BOOTSTRAP_NOT_ACVTS',
+              'timestamp_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'qsc_git_sha': os.environ.get('QSC_DEPENDENCY_SHA', 'NOT_RECORDED'),
+              'qualification_git_sha': os.environ.get('GITHUB_SHA', 'NOT_RECORDED'),
+              'runner': 'ubuntu-24.04-arm',
+              'architecture': 'aarch64',
+              'isa_profile': 'arm64-crypto',
+              'tls_class': '3',
+              'nist_demo': 'NOT_RUN',
+              'complete_library_qualification': False,
+              'cpu_feature_check': 'PASS' if cpu_evidence else 'MISSING',
+              'compiled_isa_evidence': 'PRESENT' if isa_evidence else 'MISSING',
+              'build_configuration': 'PRESENT' if build_evidence else 'MISSING',
+              'status': 'OFFLINE_SMOKE_PASS' if success else 'FAIL_OR_INCOMPLETE',
+              'results': results,
+          }
+          (evidence / 'run-manifest.json').write_text(
+              json.dumps(record, indent=2) + '\n', encoding='utf-8')
+          print('Offline arm64-crypto bootstrap:', record['status'])
+          PY
+
+      - name: Upload sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-acvp-linux-x64-arm64-crypto-offline
+          path: ${{ runner.temp }}/qsc-acvp-arm64-crypto-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce complete offline bootstrap evidence
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'qsc-acvp-arm64-crypto-evidence/run-manifest.json'
+          if not path.is_file() or json.loads(path.read_text(encoding='utf-8')).get('status') != 'OFFLINE_SMOKE_PASS':
+              raise SystemExit('FAIL: offline arm64-crypto bootstrap evidence missing or incomplete')
+          print('PASS: arm64-crypto bootstrap complete (offline only, not NIST validation)')
+          PY
