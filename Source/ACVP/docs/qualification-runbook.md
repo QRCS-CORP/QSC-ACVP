@@ -28,7 +28,7 @@ The manifest explicitly identifies `nist_demo: NOT_RUN` and `complete_library_qu
 | `scalar` | GCC/Clang x64 portable crypto paths, with x64 SSE2 baseline permitted |
 | `avx2-aesni` | GCC/Clang x64 AVX2 + AES-NI + PCLMUL; Linux workflow checks runtime CPU features and compiled instructions |
 | `msvc-avx2` | Native Windows x64 MSVC `/arch:AVX2`, checked against QSC compile-time macros |
-| `arm64-crypto` | GCC/Clang AArch64 `-march=armv8-a+crypto`, with NEON, AES/PMULL and SHA-256 compile-time checks |
+| `arm64-crypto` | GCC, Clang, or AppleClang AArch64 `-march=armv8-a+crypto`, with NEON, AES/PMULL and SHA-256 compile-time checks |
 
 Explicit profiles fail CMake configuration if the target compiler/architecture or required QSC compile-time macros do not match. This verifies selected compile-time paths, not dynamic instruction trace coverage.
 
@@ -45,5 +45,11 @@ Following a reviewed Linux scalar PASS, run the separate manually dispatched [Li
 | 02 | Linux x64 AVX2/AES-NI | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42913130713) | Same pinned revision |
 | 03 | Windows x64 MSVC AVX2 | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42914925220) | Same pinned revision |
 | 04 | Linux ARM64 NEON/AES/PMULL | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42917820582) | Same pinned revision |
+| 05 | macOS 15 Apple Silicon ARM64 | Not executed | Must use reviewed pinned revision |
 
 These are preliminary offline self-consistency and interoperability checks. They are not ACVTS server-generated verdicts, do not certify QSC, and do not establish complete operating-environment or dynamic branch coverage.
+
+
+## Next independent profile: macOS ARM64
+
+After reviewing Run 04, manually dispatch the [macOS 15 Apple Silicon ARM64 crypto bootstrap](../../../.github/workflows/qsc-acvp-macos-arm64-crypto.yml) on standard `macos-15` (not the paid `-xlarge` runner). Select the pinned QSC source SHA from previous runs. This profile uses AppleClang and `-march=armv8-a+crypto`, verifies supported Apple Silicon CPU features with `sysctl`, inspects native `.dylib` machine code using `xcrun llvm-objdump`, and performs the same offline SHA/HMAC, XOF, KDF and AES checks. It uses no NIST credentials. Static instruction presence verifies compilation, not dynamic coverage.
