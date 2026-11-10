@@ -1,0 +1,11 @@
+# QSC is checked out as a read-only external dependency.
+/dependency/
+
+# Local qualification outputs and Python tooling.
+__pycache__/
+*.py[cod]
+/.venv/
+/build/
+/Testing/
+/CMakeFiles/
+*.log
