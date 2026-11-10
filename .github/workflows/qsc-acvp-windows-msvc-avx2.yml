@@ -1,0 +1,250 @@
+# Manual GitHub-hosted Windows MSVC AVX2 qualification; QSC read-only.
+name: QSC ACVP Windows x64 MSVC AVX2 offline bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      qsc_ref:
+        description: 'Immutable 40-character QSC source commit SHA'
+        required: true
+        type: string
+        default: 43c8aa2afe9d38c3ddf9bac0107196545981ac28
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-sequential-qualification
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  windows-msvc-avx2:
+    if: github.repository == 'QRCS-CORP/QSC-ACVP'
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        with:
+          repository: QRCS-CORP/QSC
+          ref: ${{ inputs.qsc_ref }}
+          path: dependency/QSC
+          persist-credentials: false
+
+      - name: Validate immutable source and native Windows architecture
+        shell: pwsh
+        env:
+          QSC_REQUESTED_SHA: ${{ inputs.qsc_ref }}
+        run: |
+          if ($env:RUNNER_ARCH -cne 'X64') { throw 'FAIL: required x64 Windows runner' }
+          if ($env:QSC_REQUESTED_SHA -cnotmatch '^[0-9a-f]{40}$') { throw 'FAIL: source SHA must be immutable lowercase 40-character hex' }
+          $actual = (git -C dependency/QSC rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $env:QSC_REQUESTED_SHA) { throw 'FAIL: source SHA mismatch' }
+          "QSC_DEPENDENCY_SHA=$actual" >> $env:GITHUB_ENV
+          Write-Output "QSC source revision: $actual"
+          Write-Output "ACVP project revision: $env:GITHUB_SHA"
+
+      - name: Verify hosted CPU supports AVX2, AES-NI and carryless multiplication
+        shell: pwsh
+        run: |
+          $features = [ordered]@{
+            AVX2 = [System.Runtime.Intrinsics.X86.Avx2]::IsSupported
+            AESNI = [System.Runtime.Intrinsics.X86.Aes]::IsSupported
+            PCLMULQDQ = [System.Runtime.Intrinsics.X86.Pclmulqdq]::IsSupported
+            SSSE3 = [System.Runtime.Intrinsics.X86.Ssse3]::IsSupported
+            SSE41 = [System.Runtime.Intrinsics.X86.Sse41]::IsSupported
+          }
+          foreach ($name in $features.Keys) {
+            if (-not $features[$name]) { throw "FAIL: runner lacks $name" }
+          }
+          $e = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-evidence'
+          New-Item -ItemType Directory -Force -Path $e | Out-Null
+          $features.GetEnumerator() | ForEach-Object { "$($_.Key): $($_.Value)" } | Set-Content -LiteralPath (Join-Path $e 'cpu-features.txt')
+          Write-Output 'PASS: Windows runner supports all required accelerated instructions'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned reference oracle
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check cryptography==46.0.4
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: reference oracle setup' }
+
+      - name: Configure MSVC AVX2 profile and verify QSC selection macros
+        shell: pwsh
+        run: |
+          $b = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-build'
+          cmake -G 'Visual Studio 17 2022' -A x64 -S Source/ACVP -B $b -DQSC_ACVP_TLS_CLASS=3 -DQSC_ACVP_ISA_PROFILE=msvc-avx2
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: native MSVC CMake configuration' }
+          $cache = Join-Path $b 'CMakeCache.txt'
+          if (-not (Select-String -LiteralPath $cache -Pattern '^QSC_ACVP_PROFILE_MACROS_VERIFIED:INTERNAL=1$' -Quiet)) { throw 'FAIL: AVX2 QSC macro verification' }
+          Write-Output 'PASS: MSVC AVX2 profile and QSC selection macros'
+
+      - name: Build native SHA and AES test libraries
+        shell: pwsh
+        run: |
+          $b = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-build'
+          cmake --build $b --config Release --target qsc_acvp_hash qsc_acvp_aes --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: native MSVC library compilation' }
+
+      - name: Verify native AES-NI, PCLMULQDQ and 256-bit AVX2 machine code
+        shell: pwsh
+        run: |
+          $b = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-build'
+          $e = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-evidence'
+          $where = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $where)) { throw 'FAIL: Visual Studio tool locator not installed' }
+          $vs = & $where -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'FAIL: Visual Studio native C++ tools unavailable' }
+          $dumpbin = Get-ChildItem -Path (Join-Path $vs 'VC\Tools\MSVC') -Filter dumpbin.exe -Recurse |
+            Where-Object { $_.FullName -match 'Hostx64\\x64\\dumpbin\.exe$' } |
+            Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dumpbin) { throw 'FAIL: native x64 dumpbin unavailable' }
+          $aes = Join-Path $b 'Release\qsc_acvp_aes.dll'
+          $hash = Join-Path $b 'Release\qsc_acvp_hash.dll'
+          if (-not (Test-Path -LiteralPath $aes) -or -not (Test-Path -LiteralPath $hash)) { throw 'FAIL: native DLL output missing' }
+          $aesDump = Join-Path $env:RUNNER_TEMP 'acvp-aes-dump.txt'
+          $hashDump = Join-Path $env:RUNNER_TEMP 'acvp-hash-dump.txt'
+          & $dumpbin /DISASM $aes | Set-Content -LiteralPath $aesDump
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: AES machine-code disassembly' }
+          & $dumpbin /DISASM $hash | Set-Content -LiteralPath $hashDump
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: SHA3 machine-code disassembly' }
+          if (-not (Select-String -LiteralPath $aesDump -Pattern '\bv?aesenc\b' -Quiet)) { throw 'FAIL: compiled AES-NI missing' }
+          if (-not (Select-String -LiteralPath $aesDump -Pattern '\bv?pclmul[a-z0-9]*\b' -Quiet)) { throw 'FAIL: compiled PCLMULQDQ missing' }
+          if (-not (Select-String -LiteralPath $hashDump -Pattern '\bvpxor\b.*\bymm[0-9]+\b' -Quiet)) { throw 'FAIL: compiled 256-bit AVX2 vector XOR missing' }
+          @('aesenc/vaesenc: PRESENT', 'pclmulqdq/vpclmul: PRESENT', '256-bit vpxor: PRESENT', 'Static disassembly does not prove dynamic execution') |
+            Set-Content -LiteralPath (Join-Path $e 'isa-evidence.txt')
+          Write-Output 'PASS: accelerated machine-code evidence present'
+
+      - name: Record pinned build configuration
+        shell: pwsh
+        run: |
+          $b = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-build'
+          $e = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-evidence'
+          @("QSC revision: $env:QSC_DEPENDENCY_SHA", "Qualification revision: $env:GITHUB_SHA", 'OS: windows-2022', 'Architecture: x64', 'Compiler: MSVC', 'ISA: /arch:AVX2', 'Security class: 3') |
+            Set-Content -LiteralPath (Join-Path $e 'build-configuration.txt')
+          Select-String -LiteralPath (Join-Path $b 'CMakeCache.txt') -Pattern '^(QSC_ACVP_ISA_PROFILE|QSC_ACVP_TLS_CLASS|QSC_ACVP_PROFILE_MACROS_VERIFIED):' |
+            ForEach-Object { $_.Line } | Add-Content -LiteralPath (Join-Path $e 'build-configuration.txt')
+
+      - name: ACVP client regression tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s Source/ACVP/tests -p test_demo_client.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: ACVP client regression tests' }
+
+      - name: Consolidation regression tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s Source/ACVP/tests -p test_consolidation.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: consolidation regression tests' }
+
+      - name: SHA and HMAC offline tests
+        shell: pwsh
+        run: |
+          $b = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-build'
+          $e = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-evidence'
+          python Source/ACVP/local_check.py --library (Join-Path $b 'Release\qsc_acvp_hash.dll') --output $e
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: SHA/HMAC offline tests' }
+
+      - name: SP 800-185 XOF offline tests
+        shell: pwsh
+        run: |
+          $b = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-build'
+          $e = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-evidence'
+          python Source/ACVP/xof_check.py --library (Join-Path $b 'Release\qsc_acvp_hash.dll') --output $e
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: XOF offline tests' }
+
+      - name: PBKDF and HKDF offline tests
+        shell: pwsh
+        run: |
+          $b = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-build'
+          $e = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-evidence'
+          python Source/ACVP/kdf_check.py --library (Join-Path $b 'Release\qsc_acvp_hash.dll') --output $e
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: KDF offline tests' }
+
+      - name: AES interoperability offline tests
+        shell: pwsh
+        run: |
+          $b = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-build'
+          $e = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-evidence'
+          python Source/ACVP/aes_check.py --library (Join-Path $b 'Release\qsc_acvp_aes.dll') --output $e
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: AES offline tests' }
+
+      - name: Generate fail-closed qualification evidence
+        if: always()
+        shell: pwsh
+        run: |
+          @'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'acvp-windows-avx2-evidence'
+          evidence.mkdir(parents=True, exist_ok=True)
+          required = {
+              'sha_hmac': ('local-sha-vectors.json', 'LOCAL_SIMULATOR_NOT_NIST'),
+              'xof': ('xof-acvp-adapter-results.json', 'PASS_LOCAL_ADAPTER_ONLY'),
+              'kdf': ('kdf-acvp-adapter-results.json', 'PASS_LOCAL_ADAPTER_ONLY'),
+              'aes': ('aes-results.json', 'PASS_LOCAL_INTEROPERABILITY'),
+          }
+          results = {}
+          for name, (filename, expected) in required.items():
+              try:
+                  data = json.loads((evidence / filename).read_text(encoding='utf-8'))
+                  status = data.get('status', 'MISSING')
+                  passed = status == expected
+                  if name == 'sha_hmac':
+                      cases = data.get('results', [])
+                      passed = passed and len(cases) == 10 and all(item.get('passed') for item in cases)
+              except (OSError, ValueError, AttributeError, TypeError):
+                  status, passed = 'NOT_RUN_OR_UNREADABLE', False
+              results[name] = {'status': status, 'pass': bool(passed)}
+          cpu_ok = (evidence / 'cpu-features.txt').is_file()
+          isa_ok = (evidence / 'isa-evidence.txt').is_file()
+          build_ok = (evidence / 'build-configuration.txt').is_file()
+          passed = all(item['pass'] for item in results.values()) and cpu_ok and isa_ok and build_ok
+          manifest = {
+              'type': 'QSC_WINDOWS_MSVC_AVX2_OFFLINE_NOT_ACVTS',
+              'timestamp_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'qsc_git_sha': os.environ.get('QSC_DEPENDENCY_SHA', 'NOT_RECORDED'),
+              'qualification_git_sha': os.environ.get('GITHUB_SHA', 'NOT_RECORDED'),
+              'runner': 'windows-2022', 'architecture': 'x64', 'compiler': 'MSVC',
+              'isa_profile': 'msvc-avx2', 'tls_class': '3',
+              'nist_demo': 'NOT_RUN', 'complete_library_qualification': False,
+              'status': 'OFFLINE_SMOKE_PASS' if passed else 'FAIL_OR_INCOMPLETE',
+              'cpu_feature_check': 'PASS' if cpu_ok else 'MISSING',
+              'compiled_isa_evidence': 'PRESENT' if isa_ok else 'MISSING',
+              'results': results,
+          }
+          (evidence / 'run-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          print('Windows MSVC AVX2 bootstrap:', manifest['status'])
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'FAIL: evidence manifest generation' }
+
+      - name: Upload sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-acvp-windows-msvc-avx2-offline
+          path: ${{ runner.temp }}/acvp-windows-avx2-evidence/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Enforce complete Windows offline evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'acvp-windows-avx2-evidence\run-manifest.json'
+          if (-not (Test-Path -LiteralPath $path)) { throw 'FAIL: evidence manifest missing' }
+          $record = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+          if ($record.status -cne 'OFFLINE_SMOKE_PASS') { throw 'FAIL: Windows MSVC AVX2 qualification evidence incomplete' }
+          Write-Output 'PASS: Windows MSVC AVX2 offline bootstrap (not NIST validation)'
