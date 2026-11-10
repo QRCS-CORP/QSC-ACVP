@@ -130,12 +130,12 @@ jobs:
           evidence="$RUNNER_TEMP/qsc-acvp-avx2-aesni-evidence"
           objdump -d "$build/libqsc_acvp_aes.so" > "$RUNNER_TEMP/qsc-acvp-aes-disassembly.txt"
           objdump -d "$build/libqsc_acvp_hash.so" > "$RUNNER_TEMP/qsc-acvp-hash-disassembly.txt"
-          if ! grep -Eq '[[:space:]]aesenc[[:space:]]' "$RUNNER_TEMP/qsc-acvp-aes-disassembly.txt"; then
-            echo 'FAIL: compiled AES library lacks AES-NI aesenc instruction' >&2
+          if ! grep -Eq '[[:space:]]v?aesenc[[:space:]]' "$RUNNER_TEMP/qsc-acvp-aes-disassembly.txt"; then
+            echo 'FAIL: compiled AES library lacks AES-NI aesenc/vaesenc instruction' >&2
             exit 1
           fi
-          if ! grep -Eq '[[:space:]]pclmul[a-z0-9]*[[:space:]]' "$RUNNER_TEMP/qsc-acvp-aes-disassembly.txt"; then
-            echo 'FAIL: compiled AES library lacks PCLMULQDQ instruction' >&2
+          if ! grep -Eq '[[:space:]]v?pclmul[a-z0-9]*[[:space:]]' "$RUNNER_TEMP/qsc-acvp-aes-disassembly.txt"; then
+            echo 'FAIL: compiled AES library lacks PCLMULQDQ/VEX carryless-multiply instruction' >&2
             exit 1
           fi
           if ! grep -Eq '[[:space:]]vpxor[[:space:]].*%ymm' "$RUNNER_TEMP/qsc-acvp-hash-disassembly.txt"; then
@@ -143,8 +143,8 @@ jobs:
             exit 1
           fi
           {
-            echo 'AES-NI aesenc instruction: PRESENT in libqsc_acvp_aes.so'
-            echo 'PCLMULQDQ instruction: PRESENT in libqsc_acvp_aes.so'
+            echo 'AES-NI aesenc/vaesenc instruction: PRESENT in libqsc_acvp_aes.so'
+            echo 'PCLMULQDQ/VEX instruction: PRESENT in libqsc_acvp_aes.so'
             echo 'AVX2 256-bit vpxor instruction: PRESENT in libqsc_acvp_hash.so'
             echo 'Note: static disassembly demonstrates compiled instructions, not dynamic path execution.'
           } > "$evidence/isa-evidence.txt"
