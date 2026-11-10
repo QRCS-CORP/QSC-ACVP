@@ -87,7 +87,9 @@ jobs:
             echo 'NEON is checked again through QSC compilation macros and native disassembly.'
           } > "$evidence/cpu-features.txt"
           command -v ninja >/dev/null
-          xcrun --find llvm-objdump >/dev/null
+          if ! xcrun --find llvm-objdump >/dev/null 2>&1; then
+            command -v otool >/dev/null || { echo 'FAIL: no macOS disassembler available' >&2; exit 1; }
+          fi
           echo 'PASS: Apple Silicon NEON, AES, PMULL, SHA-256 features and build tools'
 
       - uses: actions/setup-python@v5
@@ -138,8 +140,13 @@ jobs:
           set -euo pipefail
           build="$RUNNER_TEMP/qsc-acvp-macos-arm64-crypto-build"
           evidence="$RUNNER_TEMP/qsc-acvp-macos-arm64-crypto-evidence"
-          xcrun llvm-objdump --disassemble "$build/libqsc_acvp_aes.dylib" > "$RUNNER_TEMP/qsc-acvp-macos-aes-disassembly.txt"
-          xcrun llvm-objdump --disassemble "$build/libqsc_acvp_hash.dylib" > "$RUNNER_TEMP/qsc-acvp-macos-hash-disassembly.txt"
+          if xcrun --find llvm-objdump >/dev/null 2>&1; then
+            xcrun llvm-objdump --disassemble "$build/libqsc_acvp_aes.dylib" > "$RUNNER_TEMP/qsc-acvp-macos-aes-disassembly.txt"
+            xcrun llvm-objdump --disassemble "$build/libqsc_acvp_hash.dylib" > "$RUNNER_TEMP/qsc-acvp-macos-hash-disassembly.txt"
+          else
+            otool -tvV -arch arm64 "$build/libqsc_acvp_aes.dylib" > "$RUNNER_TEMP/qsc-acvp-macos-aes-disassembly.txt"
+            otool -tvV -arch arm64 "$build/libqsc_acvp_hash.dylib" > "$RUNNER_TEMP/qsc-acvp-macos-hash-disassembly.txt"
+          fi
           if ! grep -Eq '[[:space:]]aese([.][[:alnum:]]+)?[[:space:]]+[vq][0-9]+' "$RUNNER_TEMP/qsc-acvp-macos-aes-disassembly.txt"; then
             echo 'FAIL: macOS ARM AES library lacks an AESE instruction' >&2
             exit 1
