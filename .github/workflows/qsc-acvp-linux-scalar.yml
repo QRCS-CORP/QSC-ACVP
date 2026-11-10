@@ -1,3 +1,4 @@
+# Standalone manual-only ACVP qualification workflow; no scheduled or push triggers.
 name: QSC ACVP Linux x64 scalar offline bootstrap
 
 on:
