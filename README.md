@@ -8,7 +8,7 @@ QSC is checked out as an **external read-only dependency**, pinned separately fo
 
 The [Linux x64 scalar offline bootstrap](.github/workflows/qsc-acvp-linux-scalar.yml) is **manually dispatched** on a standard Ubuntu 24.04 GitHub-hosted runner. It accepts an immutable 40-character QSC commit SHA (default `43c8aa2afe9d38c3ddf9bac0107196545981ac28`), checks the scalar compilation macros, builds native SHA/AES adapters, runs offline SHA/HMAC, XOF, KDF and AES tests, and retains sanitized evidence for 14 days.
 
-A successful offline bootstrap is **not** a complete library qualification, a NIST ACVTS verdict, a Demo validation, a production CAVP certificate, or FIPS 140-3 validation. No NIST credentials are used.
+The [Linux x64 AVX2/AES-NI offline bootstrap](.github/workflows/qsc-acvp-linux-avx2.yml) is a separate, manually dispatched workflow that checks runtime CPU capabilities and compiled accelerated-instruction evidence before running the same offline adapter tests. Execute it only after reviewing the scalar evidence. A successful offline bootstrap is **not** a complete library qualification, a NIST ACVTS verdict, a Demo validation, a production CAVP certificate, or FIPS 140-3 validation. Neither workflow uses NIST credentials.
 
 ## Repository layout
 
