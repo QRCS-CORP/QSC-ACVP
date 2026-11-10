@@ -26,10 +26,24 @@ The manifest explicitly identifies `nist_demo: NOT_RUN` and `complete_library_qu
 | --- | --- |
 | `default` | Compiler default; no claim of ISA coverage |
 | `scalar` | GCC/Clang x64 portable crypto paths, with x64 SSE2 baseline permitted |
-| `avx2-aesni` | GCC/Clang x64 AVX2 + AES-NI + PCLMUL; future workflow requires runtime CPU feature verification |
+| `avx2-aesni` | GCC/Clang x64 AVX2 + AES-NI + PCLMUL; Linux workflow checks runtime CPU features and compiled instructions |
+| `msvc-avx2` | Native Windows x64 MSVC `/arch:AVX2`, checked against QSC compile-time macros |
+| `arm64-crypto` | GCC/Clang AArch64 `-march=armv8-a+crypto`, with NEON, AES/PMULL and SHA-256 compile-time checks |
 
 Explicit profiles fail CMake configuration if the target compiler/architecture or required QSC compile-time macros do not match. This verifies selected compile-time paths, not dynamic instruction trace coverage.
 
 ## Later phases
 
-Following a reviewed Linux scalar PASS, run the separate manually dispatched [Linux AVX2/AES-NI bootstrap](../../../.github/workflows/qsc-acvp-linux-avx2.yml), followed by the independently dispatched [Windows x64 MSVC AVX2 bootstrap](../../../.github/workflows/qsc-acvp-windows-msvc-avx2.yml). The Windows workflow uses `windows-2022`, Visual Studio 2022 and `/arch:AVX2`; it checks CPU features through .NET intrinsics, QSC's preprocessor-selected ISA, and compiled DLL instructions, and records independent evidence. Run it only after the Linux AVX2 profile has been reviewed; do not automatically retry on a failed hosted runner. Then add selected ARM64 qualification workflows. The Linux AVX2 profile requires the hosted CPU to advertise AVX2, AES, PCLMULQDQ, SSSE3 and SSE4.1; it fails closed if they are absent. Its artifacts include the runner's exposed CPU features and static disassembly evidence for compiled AES-NI, carryless multiplication and 256-bit AVX2 instructions. Static instruction presence does not alone prove dynamic execution of every accelerated function. The SHA/AES interoperability suite remains offline evidence, not NIST validation. Authenticated NIST Demo sessions, certification metadata and formal validation workflow are a separate phase requiring protected secrets and explicit approval. Do not place keys, TOTP seeds, client certificates or session tokens in source or public artifacts.
+Following a reviewed Linux scalar PASS, run the separate manually dispatched [Linux AVX2/AES-NI bootstrap](../../../.github/workflows/qsc-acvp-linux-avx2.yml), followed by the independently dispatched [Windows x64 MSVC AVX2 bootstrap](../../../.github/workflows/qsc-acvp-windows-msvc-avx2.yml). The Windows workflow uses `windows-2022`, Visual Studio 2022 and `/arch:AVX2`; it checks CPU features through .NET intrinsics, QSC's preprocessor-selected ISA, and compiled DLL instructions, and records independent evidence. Run it only after the Linux AVX2 profile has been reviewed; do not automatically retry on a failed hosted runner. Following the independently reviewed Windows PASS, dispatch the [Linux ARM64 NEON/AES/PMULL bootstrap](../../../.github/workflows/qsc-acvp-linux-arm64-crypto.yml) on `ubuntu-24.04-arm`. The workflow requires the hosted processor to expose `asimd`, `aes`, `pmull` and `sha2`, and verifies native machine-code presence of `aese`, `pmull`, `sha256h` and NEON vector operations. It is manual-only, creates a separate artifact and fails closed on missing evidence. The Linux AVX2 profile requires the hosted CPU to advertise AVX2, AES, PCLMULQDQ, SSSE3 and SSE4.1; it fails closed if they are absent. Its artifacts include the runner's exposed CPU features and static disassembly evidence for compiled AES-NI, carryless multiplication and 256-bit AVX2 instructions. Static instruction presence does not alone prove dynamic execution of every accelerated function. The SHA/AES interoperability suite remains offline evidence, not NIST validation. Authenticated NIST Demo sessions, certification metadata and formal validation workflow are a separate phase requiring protected secrets and explicit approval. Do not place keys, TOTP seeds, client certificates or session tokens in source or public artifacts.
+
+
+## Completed offline qualification bootstrap records
+
+| Run | Profile | GitHub Actions result | QSC dependency revision |
+| --- | --- | --- | --- |
+| 01 | Linux x64 scalar | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42905877018) | `43c8aa2afe9d38c3ddf9bac0107196545981ac28` |
+| 02 | Linux x64 AVX2/AES-NI | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42913130713) | Same pinned revision |
+| 03 | Windows x64 MSVC AVX2 | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42914925220) | Same pinned revision |
+| 04 | Linux ARM64 NEON/AES/PMULL | Not executed | Must use reviewed pinned revision |
+
+These are preliminary offline self-consistency and interoperability checks. They are not ACVTS server-generated verdicts, do not certify QSC, and do not establish complete operating-environment or dynamic branch coverage.
