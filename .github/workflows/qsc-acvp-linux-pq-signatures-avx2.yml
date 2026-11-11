@@ -1,0 +1,500 @@
+# Independent AVX2 ML-DSA/SLH-DSA offline qualification; not NIST ACVTS.
+name: QSC ACVP Linux x64 AVX2 ML-DSA and SLH-DSA offline qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      qsc_ref:
+        description: 'Immutable 40-character QSC source commit to qualify'
+        required: true
+        type: string
+        default: 43c8aa2afe9d38c3ddf9bac0107196545981ac28
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-sequential-qualification
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  linux-pq-avx2-signatures:
+    name: Linux AVX2 ML-DSA FIPS 204 and SLH-DSA FIPS 205 offline checks
+    if: github.repository == 'QRCS-CORP/QSC-ACVP'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout qualification revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Checkout pinned QSC dependency read-only
+        uses: actions/checkout@v4
+        with:
+          repository: QRCS-CORP/QSC
+          ref: ${{ inputs.qsc_ref }}
+          path: dependency/QSC
+          persist-credentials: false
+
+      - name: Verify pinned QSC source and AVX2/BMI2 CPU
+        shell: bash
+        env:
+          QSC_REQUESTED_SHA: ${{ inputs.qsc_ref }}
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          if [[ ! "$QSC_REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'FAIL: expected immutable 40-character QSC commit SHA' >&2
+            exit 1
+          fi
+          sha="$(git -C dependency/QSC rev-parse HEAD)"
+          if [[ "$sha" != "$QSC_REQUESTED_SHA" ]]; then
+            echo 'FAIL: QSC dependency SHA differs from requested pinned source' >&2
+            exit 1
+          fi
+          echo "QSC_DEPENDENCY_SHA=$sha" >> "$GITHUB_ENV"
+          echo "QSC source commit: $sha"
+          echo "Qualification commit: $(git rev-parse HEAD)"
+          flags="$(grep -m1 '^flags[[:space:]]*:' /proc/cpuinfo)"
+          for feature in avx2 aes pclmulqdq bmi2 ssse3 sse4_1; do
+            if ! grep -qw "$feature" <<< "$flags"; then
+              echo "FAIL: required AVX2 qualification CPU feature absent: $feature" >&2
+              exit 1
+            fi
+          done
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          mkdir -p "$evidence"
+          {
+            echo 'Required CPU features: avx2 aes pclmulqdq bmi2 ssse3 sse4_1'
+            grep -m1 '^model name' /proc/cpuinfo || true
+            printf '%s\n' "$flags"
+          } > "$evidence/cpu-features.txt"
+          echo 'PASS: pinned dependency and AVX2/BMI2 CPU prerequisites'
+
+      - name: Configure isolated accelerated qualification build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -S Source/ACVP -B "$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQSC_ACVP_TLS_CLASS=3 \
+            -DQSC_ACVP_ISA_PROFILE=avx2-aesni
+          grep -q '^QSC_ACVP_PROFILE_MACROS_VERIFIED:INTERNAL=1$' \
+            "$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/CMakeCache.txt"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          {
+            echo "QSC dependency SHA: $QSC_DEPENDENCY_SHA"
+            echo "Qualification SHA: $GITHUB_SHA"
+            echo 'ISA profile: avx2-aesni (BMI2 enabled on PQ library)'
+            cc --version | head -n 1
+            grep -E '^(QSC_ACVP_ISA_PROFILE|QSC_ACVP_TLS_CLASS|QSC_ACVP_PROFILE_MACROS_VERIFIED):' \
+              "$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/CMakeCache.txt"
+          } > "$evidence/build-configuration.txt"
+
+      - name: Build native QSC ML-DSA and SLH-DSA library
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build "$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build" \
+            --target qsc_acvp_pq --parallel 2
+          test -s "$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/libqsc_acvp_pq.so"
+
+      - name: Verify compiled ML-DSA AVX2 backends and SLH-DSA signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          library="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/libqsc_acvp_pq.so"
+          nm -D --defined-only "$library" > "$RUNNER_TEMP/pq-signatures-symbols.txt"
+          for size in 44 65 87; do
+            if ! grep -Eq "[[:space:]]qsc_mldsa${size}_ref_avx2_sign$" "$RUNNER_TEMP/pq-signatures-symbols.txt"; then
+              echo "FAIL: ML-DSA-$size AVX2 signature backend symbol missing" >&2
+              exit 1
+            fi
+          done
+          for parameter in 128s 128f 192s 192f 256s 256f; do
+            if ! grep -Eq "[[:space:]]qsc_slhdsa_shake${parameter}_sign_deterministic$" "$RUNNER_TEMP/pq-signatures-symbols.txt"; then
+              echo "FAIL: SLH-DSA-SHAKE-$parameter signature API missing" >&2
+              exit 1
+            fi
+          done
+          objdump -d "$library" > "$RUNNER_TEMP/pq-signatures-disassembly.txt"
+          if ! grep -Eq '[[:space:]]vpxor[[:space:]].*%ymm' "$RUNNER_TEMP/pq-signatures-disassembly.txt"; then
+            echo 'FAIL: 256-bit AVX2 vector XOR absent in native PQ library' >&2
+            exit 1
+          fi
+          {
+            echo 'ML-DSA-44/65/87 native AVX2 signing backend symbols: PRESENT'
+            echo 'SLH-DSA-SHAKE-128s/f,192s/f,256s/f deterministic signing symbols: PRESENT'
+            echo 'AVX2 256-bit vpxor instruction in PQ shared library: PRESENT'
+            echo 'These are compiled-code checks, not complete dynamic ISA tracing.'
+          } > "$evidence/isa-evidence.txt"
+          echo 'PASS: compiled ML-DSA AVX2 backend, SLH-DSA signature symbols and AVX2 ISA'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test ML-DSA key generation parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_ml_dsa_seeded_keygen_vector \
+            2>&1 | tee "$evidence/mldsa-parser-keygen.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa-parser-keygen.log"
+          grep -Eq '^OK$' "$evidence/mldsa-parser-keygen.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa-parser-keygen.log"; then
+            echo 'FAIL: ML-DSA key generation parser' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa-parser-keygen.status"
+          echo 'PASS: ML-DSA key generation parser'
+
+      - name: Test ML-DSA randomized signing rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_ml_dsa_rejects_randomized_siggen \
+            2>&1 | tee "$evidence/mldsa-parser-randomization.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa-parser-randomization.log"
+          grep -Eq '^OK$' "$evidence/mldsa-parser-randomization.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa-parser-randomization.log"; then
+            echo 'FAIL: ML-DSA randomized signing rejection' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa-parser-randomization.status"
+          echo 'PASS: ML-DSA randomized signing rejection'
+
+      - name: Test ML-DSA internal-mu rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_ml_dsa_rejects_internal_mu_siggen \
+            2>&1 | tee "$evidence/mldsa-parser-mu.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa-parser-mu.log"
+          grep -Eq '^OK$' "$evidence/mldsa-parser-mu.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa-parser-mu.log"; then
+            echo 'FAIL: ML-DSA internal-mu rejection' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa-parser-mu.status"
+          echo 'PASS: ML-DSA internal-mu rejection'
+
+      - name: Test ML-DSA-44 native signing and vector replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_mldsa44 \
+            2>&1 | tee "$evidence/mldsa44-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa44-native.log"
+          grep -Eq '^OK$' "$evidence/mldsa44-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa44-native.log"; then
+            echo 'FAIL: ML-DSA-44 native signing and vector replay' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa44-native.status"
+          echo 'PASS: ML-DSA-44 native signing and vector replay'
+
+      - name: Test ML-DSA-65 native signing and vector replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_mldsa65 \
+            2>&1 | tee "$evidence/mldsa65-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa65-native.log"
+          grep -Eq '^OK$' "$evidence/mldsa65-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa65-native.log"; then
+            echo 'FAIL: ML-DSA-65 native signing and vector replay' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa65-native.status"
+          echo 'PASS: ML-DSA-65 native signing and vector replay'
+
+      - name: Test ML-DSA-87 native signing and vector replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_mldsa87 \
+            2>&1 | tee "$evidence/mldsa87-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa87-native.log"
+          grep -Eq '^OK$' "$evidence/mldsa87-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa87-native.log"; then
+            echo 'FAIL: ML-DSA-87 native signing and vector replay' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa87-native.status"
+          echo 'PASS: ML-DSA-87 native signing and vector replay'
+
+      - name: Test SLH-DSA seeded key generation parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_slhdsa_seeded_keygen_vector \
+            2>&1 | tee "$evidence/slhdsa-parser-keygen.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa-parser-keygen.log"
+          grep -Eq '^OK$' "$evidence/slhdsa-parser-keygen.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa-parser-keygen.log"; then
+            echo 'FAIL: SLH-DSA seeded key generation parser' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa-parser-keygen.status"
+          echo 'PASS: SLH-DSA seeded key generation parser'
+
+      - name: Test SLH-DSA nondeterministic signing rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_slhdsa_rejects_nondeterministic_signatures \
+            2>&1 | tee "$evidence/slhdsa-parser-nondeterministic.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa-parser-nondeterministic.log"
+          grep -Eq '^OK$' "$evidence/slhdsa-parser-nondeterministic.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa-parser-nondeterministic.log"; then
+            echo 'FAIL: SLH-DSA nondeterministic signing rejection' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa-parser-nondeterministic.status"
+          echo 'PASS: SLH-DSA nondeterministic signing rejection'
+
+      - name: Test SLH-DSA prehash rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_slhdsa_rejects_prehash \
+            2>&1 | tee "$evidence/slhdsa-parser-prehash.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa-parser-prehash.log"
+          grep -Eq '^OK$' "$evidence/slhdsa-parser-prehash.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa-parser-prehash.log"; then
+            echo 'FAIL: SLH-DSA prehash rejection' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa-parser-prehash.status"
+          echo 'PASS: SLH-DSA prehash rejection'
+
+      - name: Test SLH-DSA-SHAKE-128s native signing and vector replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa128s \
+            2>&1 | tee "$evidence/slhdsa128s-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa128s-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa128s-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa128s-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-128s native signing and vector replay' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa128s-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-128s native signing and vector replay'
+
+      - name: Test SLH-DSA-SHAKE-128f native signing and vector replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa128f \
+            2>&1 | tee "$evidence/slhdsa128f-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa128f-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa128f-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa128f-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-128f native signing and vector replay' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa128f-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-128f native signing and vector replay'
+
+      - name: Test SLH-DSA-SHAKE-192s native signing and vector replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa192s \
+            2>&1 | tee "$evidence/slhdsa192s-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa192s-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa192s-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa192s-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-192s native signing and vector replay' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa192s-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-192s native signing and vector replay'
+
+      - name: Test SLH-DSA-SHAKE-192f native signing and vector replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa192f \
+            2>&1 | tee "$evidence/slhdsa192f-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa192f-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa192f-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa192f-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-192f native signing and vector replay' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa192f-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-192f native signing and vector replay'
+
+      - name: Test SLH-DSA-SHAKE-256s native signing and vector replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa256s \
+            2>&1 | tee "$evidence/slhdsa256s-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa256s-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa256s-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa256s-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-256s native signing and vector replay' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa256s-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-256s native signing and vector replay'
+
+      - name: Test SLH-DSA-SHAKE-256f native signing and vector replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-signatures-avx2-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa256f \
+            2>&1 | tee "$evidence/slhdsa256f-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa256f-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa256f-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa256f-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-256f native signing and vector replay' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa256f-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-256f native signing and vector replay'
+
+      - name: Generate sanitized signature-family evidence
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'qsc-acvp-pq-signatures-avx2-evidence'
+          evidence.mkdir(parents=True, exist_ok=True)
+          expected = {
+              'mldsa-parser-keygen': 'mldsa-parser-keygen.status',
+              'mldsa-parser-randomization': 'mldsa-parser-randomization.status',
+              'mldsa-parser-mu': 'mldsa-parser-mu.status',
+              'mldsa44-native': 'mldsa44-native.status',
+              'mldsa65-native': 'mldsa65-native.status',
+              'mldsa87-native': 'mldsa87-native.status',
+              'slhdsa-parser-keygen': 'slhdsa-parser-keygen.status',
+              'slhdsa-parser-nondeterministic': 'slhdsa-parser-nondeterministic.status',
+              'slhdsa-parser-prehash': 'slhdsa-parser-prehash.status',
+              'slhdsa128s-native': 'slhdsa128s-native.status',
+              'slhdsa128f-native': 'slhdsa128f-native.status',
+              'slhdsa192s-native': 'slhdsa192s-native.status',
+              'slhdsa192f-native': 'slhdsa192f-native.status',
+              'slhdsa256s-native': 'slhdsa256s-native.status',
+              'slhdsa256f-native': 'slhdsa256f-native.status',
+          }
+          results = {}
+          for name, file_name in expected.items():
+              try:
+                  results[name] = (evidence / file_name).read_text(
+                      encoding='utf-8').strip() == 'PASS'
+              except OSError:
+                  results[name] = False
+          config_ok = (evidence / 'build-configuration.txt').is_file()
+          cpu_ok = (evidence / 'cpu-features.txt').is_file()
+          isa_ok = (evidence / 'isa-evidence.txt').is_file()
+          complete = all(results.values()) and config_ok and cpu_ok and isa_ok
+          record = {
+              'type': 'QSC_LINUX_AVX2_MLDSA_SLHDSA_OFFLINE_NOT_ACVTS',
+              'timestamp_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'qsc_git_sha': os.environ.get('QSC_DEPENDENCY_SHA', 'NOT_RECORDED'),
+              'qualification_git_sha': os.environ.get('GITHUB_SHA', 'NOT_RECORDED'),
+              'runner': 'ubuntu-24.04',
+              'architecture': 'x86_64',
+              'isa_profile': 'avx2-aesni',
+              'mldsa_native_passed': sum(results[name] for name in (
+                  'mldsa44-native', 'mldsa65-native', 'mldsa87-native')),
+              'slhdsa_native_passed': sum(results[name] for name in (
+                  'slhdsa128s-native', 'slhdsa128f-native', 'slhdsa192s-native',
+                  'slhdsa192f-native', 'slhdsa256s-native', 'slhdsa256f-native')),
+              'parser_regressions_passed': sum(results[name] for name in expected
+                                               if '-parser-' in name),
+              'test_results': results,
+              'cpu_features': 'PASS' if cpu_ok else 'MISSING',
+              'compiled_isa_evidence': 'PRESENT' if isa_ok else 'MISSING',
+              'build_configuration': 'PRESENT' if config_ok else 'MISSING',
+              'nist_demo': 'NOT_RUN',
+              'external_acvts_verdict': 'NOT_RUN',
+              'complete_library_qualification': False,
+              'status': 'OFFLINE_AVX2_SIGNATURES_PASS' if complete else 'FAIL_OR_INCOMPLETE',
+          }
+          (evidence / 'run-manifest.json').write_text(
+              json.dumps(record, indent=2) + '\n', encoding='utf-8')
+          print('AVX2 signature family evidence:', record['status'])
+          PY
+
+      - name: Upload sanitized ML-DSA/SLH-DSA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-acvp-linux-x64-avx2-mldsa-slhdsa-offline
+          path: ${{ runner.temp }}/qsc-acvp-pq-signatures-avx2-evidence/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Enforce complete independent signature evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          file = Path(os.environ['RUNNER_TEMP']) / 'qsc-acvp-pq-signatures-avx2-evidence/run-manifest.json'
+          if not file.is_file() or json.loads(file.read_text(encoding='utf-8')).get('status') != 'OFFLINE_AVX2_SIGNATURES_PASS':
+              raise SystemExit('FAIL: AVX2 ML-DSA/SLH-DSA evidence missing or incomplete')
+          print('PASS: independent AVX2 signature-family offline tests; NOT NIST validation')
+          PY
