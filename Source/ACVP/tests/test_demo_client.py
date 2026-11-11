@@ -183,6 +183,76 @@ class DemoClientTests(unittest.TestCase):
         self.assertEqual(sum(1 for method, path, token, body in server.calls
                              if method == "POST" and path == server.vector + "/results"), 1)
 
+    def test_large_response_uses_server_grant_and_single_upload(self):
+        """Large responses use a grant rather than the standard result endpoint."""
+        class LargeServer(FakeTransport):
+            def __init__(self):
+                super().__init__()
+                self.uploads = []
+
+            def request(self, method, path, token=None, body=None):
+                if path == client.DEMO_API + "/login" and method == "POST":
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"},
+                            {"accessToken": "private-login-token",
+                             "largeEndpointRequired": True, "sizeConstraint": 32}]
+                if path == client.DEMO_API + "/large" and method == "POST":
+                    self.calls.append((method, path, token, body))
+                    self.grant_body = body
+                    return [{"acvVersion": "1.0"},
+                            {"url": "https://demo.acvts.nist.gov/large/mock-one-time-id",
+                             "accessToken": "private-large-token"}]
+                return super().request(method, path, token, body)
+
+            def upload_large(self, url, token, body):
+                self.uploads.append((url, token, body))
+
+        server = LargeServer()
+        report = client.execute(server, Oracle(),
+                                "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                                ("SHA2-256",), poll_count=1)
+        self.assertEqual(report["status"], "PASS_DEMO_SAMPLE")
+        self.assertEqual(len(server.uploads), 1)
+        self.assertEqual(server.uploads[0][1], "private-large-token")
+        self.assertEqual(server.grant_body[1]["vectorSetUrl"], server.vector)
+        self.assertGreater(server.grant_body[1]["submissionSize"], 32)
+        self.assertFalse(any(method == "POST" and path == server.vector + "/results"
+                             for method, path, token, body in server.calls))
+        self.assertNotIn("private-large-token", str(report))
+
+    def test_large_response_rejects_unavailable_upload_handler(self):
+        """Missing authorized large transport must fail before server acceptance."""
+        class NoUploadServer(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "POST" and path == client.DEMO_API + "/login":
+                    return [{"acvVersion": "1.0"},
+                            {"accessToken": "private-login-token",
+                             "largeEndpointRequired": True, "sizeConstraint": 8}]
+                if method == "POST" and path == client.DEMO_API + "/large":
+                    return [{"acvVersion": "1.0"},
+                            {"url": "https://not-approved.example/large/id"}]
+                return super().request(method, path, token, body)
+
+        server = NoUploadServer()
+        report = client.execute(server, Oracle(),
+                                "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                                ("SHA2-256",), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        self.assertFalse(report["server_passed"])
+
+    def test_large_upload_cross_origin_is_rejected_without_network_access(self):
+        """Never send bearer tokens to an unapproved server-provided origin."""
+        transport = object.__new__(client.DemoTransport)
+        transport._large_origin = None
+        body = [{"acvVersion": "1.0"}, {"vsId": 91}]
+        with self.assertRaises(ValueError):
+            transport.upload_large("https://attacker.example/large/1", "private", body)
+        with self.assertRaises(ValueError):
+            transport.upload_large("http://demo.acvts.nist.gov/large/1", "private", body)
+        with self.assertRaises(ValueError):
+            transport.upload_large("https://demo.acvts.nist.gov@attacker.example/large/1",
+                                   "private", body)
+
     def test_registration_is_byte_aligned_and_sample_only(self):
         registration = client.registration(("SHA2-256", "SHA3-256"))
         self.assertTrue(registration[1]["isSample"])
