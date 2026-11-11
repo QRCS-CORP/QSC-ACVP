@@ -1,4 +1,4 @@
-# Independent FIPS 186-5, RFC 7748 and RFC 8032 ECC adapter smoke coverage; manual only, not NIST validation.
+# Independent ECC interoperability bootstrap; manual only, not NIST validation.
 name: QSC ACVP Linux x64 scalar ECC offline qualification
 
 on:
@@ -92,7 +92,7 @@ jobs:
               "$RUNNER_TEMP/qsc-acvp-ecc-scalar-build/CMakeCache.txt"
           } > "$evidence/build-configuration.txt"
 
-      - name: Build pinned QSC native post-quantum library
+      - name: Build pinned native QSC elliptic-curve library
         shell: bash
         run: |
           set -euo pipefail
@@ -127,7 +127,7 @@ jobs:
           python Source/ACVP/ecc_check.py \
             --library "$RUNNER_TEMP/qsc-acvp-ecc-scalar-build/libqsc_acvp_ecc.so" \
             --output "$RUNNER_TEMP/qsc-acvp-ecc-scalar-evidence"
-          echo 'PASS: all ten ECC native independent interoperability checks completed'
+          echo 'ECC oracle returned; final manifest independently enforces all ten algorithm results'
 
       - name: Generate sanitized fail-closed complete ECC evidence
         if: always()
