@@ -155,12 +155,16 @@ jobs:
             echo 'FAIL: macOS ARM AES library lacks a PMULL instruction' >&2
             exit 1
           fi
-          if ! grep -Eq '[[:space:]]sha256h[[:space:]]+' "$RUNNER_TEMP/qsc-acvp-macos-hash-disassembly.txt"; then
-            echo 'FAIL: macOS ARM SHA library lacks a SHA256H instruction' >&2
+          if ! grep -Eq '[[:space:]]sha256h([.][[:alnum:]]+)?[[:space:]]+' "$RUNNER_TEMP/qsc-acvp-macos-hash-disassembly.txt"; then
+            echo 'FAIL: macOS ARM SHA library lacks SHA256H (plain or typed mnemonic)' >&2
+            echo 'SHA-related disassembly candidates:' >&2
+            grep -Ei 'sha256|sha2' "$RUNNER_TEMP/qsc-acvp-macos-hash-disassembly.txt" | head -n 15 >&2 || true
             exit 1
           fi
           if ! grep -Eq '[[:space:]]eor([.][[:alnum:]]+)?[[:space:]]+v[0-9]+' "$RUNNER_TEMP/qsc-acvp-macos-hash-disassembly.txt"; then
             echo 'FAIL: macOS ARM SHA3 library lacks expected NEON vector EOR' >&2
+            echo 'Vector EOR disassembly candidates:' >&2
+            grep -Ei '[[:space:]]eor' "$RUNNER_TEMP/qsc-acvp-macos-hash-disassembly.txt" | head -n 15 >&2 || true
             exit 1
           fi
           {
