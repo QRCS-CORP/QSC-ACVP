@@ -46,7 +46,8 @@ Following a reviewed Linux scalar PASS, run the separate manually dispatched [Li
 | 03 | Windows x64 MSVC AVX2 | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42914925220) | Same pinned revision |
 | 04 | Linux ARM64 NEON/AES/PMULL | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42917820582) | Same pinned revision |
 | 05 | macOS 15 Apple Silicon ARM64 | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42932360195) | Same pinned revision |
-| 06 | Linux x64 scalar ML-KEM-512/768/1024 | Not executed | Must use reviewed pinned revision |
+| 06 | Linux x64 scalar ML-KEM-512/768/1024 | [OFFLINE_MLKEM_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42933335977) | Same pinned revision |
+| 07 | Linux x64 scalar ML-DSA-44/65/87 | Not executed | Must use reviewed pinned revision |
 
 These are preliminary offline self-consistency and interoperability checks. They are not ACVTS server-generated verdicts, do not certify QSC, and do not establish complete operating-environment or dynamic branch coverage.
 
@@ -59,3 +60,8 @@ After reviewing Run 04, manually dispatch the [macOS 15 Apple Silicon ARM64 cryp
 ## Next algorithm family: ML-KEM (FIPS 203)
 
 After reviewing the five SHA/AES platform bootstraps, manually dispatch [Linux x64 scalar ML-KEM offline qualification](../../../.github/workflows/qsc-acvp-linux-mlkem-scalar.yml). The new workflow uses the same pinned source revision and GCC scalar profile, but builds the standalone post-quantum adapter. It tests ML-KEM-512, ML-KEM-768, and ML-KEM-1024 key generation, deterministic encapsulation, decapsulation, altered ciphertext implicit rejection, ACVP envelope handling, and unsupported-input rejection. It records independent parser-regression and native results and fails closed on incomplete evidence. It is **not** an authenticated NIST ACVTS run, independent algorithm certification, or an exhaustive ML-KEM validation. Run separate ML-DSA and SLH-DSA algorithm stages only after the ML-KEM evidence has been reviewed.
+
+
+## Next signature family: ML-DSA (FIPS 204)
+
+After reviewing the standalone ML-KEM evidence, manually dispatch [Linux scalar ML-DSA offline qualification](../../../.github/workflows/qsc-acvp-linux-mldsa-scalar.yml). It reuses the pinned, read-only QSC source and the already-defined scalar post-quantum build, while running three individually invoked native signature tests in sequence: ML-DSA-44, ML-DSA-65 and ML-DSA-87. Three separate fail-closed parser regressions cover seeded key generation and unsupported randomized and internal-mu signing modes. Each native test checks signing, signature verification, tampering rejection and supported ACVP-style vector responses. All results are recorded as a distinct sanitized artifact and the run fails on missing, skipped or failed checks. This stage is an offline adapter prequalification only, not a NIST ACVTS verdict or full FIPS 204 validation. SLH-DSA remains a separate future stage.
