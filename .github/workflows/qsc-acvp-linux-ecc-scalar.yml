@@ -1,0 +1,225 @@
+# Independent FIPS 186-5, RFC 7748 and RFC 8032 ECC adapter smoke coverage; manual only, not NIST validation.
+name: QSC ACVP Linux x64 scalar ECC offline qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      qsc_ref:
+        description: 'Immutable 40-character QSC source commit to qualify'
+        type: string
+        required: true
+        default: 43c8aa2afe9d38c3ddf9bac0107196545981ac28
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-sequential-qualification
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  linux-ecc-scalar:
+    name: Linux x64 scalar complete ECC independent adapter and oracle checks
+    if: github.repository == 'QRCS-CORP/QSC-ACVP'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout reviewed qualification revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Checkout pinned QSC dependency read-only
+        uses: actions/checkout@v4
+        with:
+          repository: QRCS-CORP/QSC
+          ref: ${{ inputs.qsc_ref }}
+          path: dependency/QSC
+          persist-credentials: false
+
+      - name: Verify pinned QSC revision and Linux x64 target
+        shell: bash
+        env:
+          QSC_REQUESTED_SHA: ${{ inputs.qsc_ref }}
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          if [[ ! "$QSC_REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'FAIL: an immutable 40-character lowercase QSC revision is mandatory' >&2
+            exit 1
+          fi
+          sha="$(git -C dependency/QSC rev-parse HEAD)"
+          if [[ "$sha" != "$QSC_REQUESTED_SHA" ]]; then
+            echo 'FAIL: QSC checkout differs from requested immutable revision' >&2
+            exit 1
+          fi
+          printf 'QSC_DEPENDENCY_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
+          echo "QSC source commit: $sha"
+          echo "Qualification commit: $(git rev-parse HEAD)"
+
+      - name: Configure isolated Linux scalar compilation profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -S Source/ACVP -B "$RUNNER_TEMP/qsc-acvp-ecc-scalar-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQSC_ACVP_TLS_CLASS=3 \
+            -DQSC_ACVP_ISA_PROFILE=scalar
+          grep -q '^QSC_ACVP_PROFILE_MACROS_VERIFIED:INTERNAL=1$' \
+            "$RUNNER_TEMP/qsc-acvp-ecc-scalar-build/CMakeCache.txt"
+
+      - name: Record source and compilation configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/qsc-acvp-ecc-scalar-evidence"
+          mkdir -p "$evidence"
+          {
+            printf 'QSC source commit: %s\n' "$QSC_DEPENDENCY_SHA"
+            printf 'Qualification commit: %s\n' "$GITHUB_SHA"
+            printf 'Operating system: %s\n' "$(uname -s)"
+            printf 'Architecture: %s\n' "$(uname -m)"
+            printf 'Test family: complete elliptic-curve offline interoperability suite\n'
+            printf 'ISA profile: scalar\nTLS class: 3\n'
+            cc --version | head -n 1
+            grep -E '^(QSC_ACVP_ISA_PROFILE|QSC_ACVP_TLS_CLASS|QSC_ACVP_PROFILE_MACROS_VERIFIED):' \
+              "$RUNNER_TEMP/qsc-acvp-ecc-scalar-build/CMakeCache.txt"
+          } > "$evidence/build-configuration.txt"
+
+      - name: Build pinned QSC native post-quantum library
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build "$RUNNER_TEMP/qsc-acvp-ecc-scalar-build" \
+            --target qsc_acvp_ecc --parallel 2
+          test -s "$RUNNER_TEMP/qsc-acvp-ecc-scalar-build/libqsc_acvp_ecc.so"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install independent pinned cryptographic reference implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check cryptography==46.0.4
+
+      - name: Run complete ECC ACVP adapter and vector regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python Source/ACVP/ecc_adapter_check.py \
+            --library "$RUNNER_TEMP/qsc-acvp-ecc-scalar-build/libqsc_acvp_ecc.so" \
+            --output "$RUNNER_TEMP/qsc-acvp-ecc-scalar-evidence" \
+            --complete
+          echo 'PASS: all 33 ECC adapter/vector regressions completed with zero skips'
+
+      - name: Run independent ECC interoperability across all ten algorithms
+        shell: bash
+        run: |
+          set -euo pipefail
+          python Source/ACVP/ecc_check.py \
+            --library "$RUNNER_TEMP/qsc-acvp-ecc-scalar-build/libqsc_acvp_ecc.so" \
+            --output "$RUNNER_TEMP/qsc-acvp-ecc-scalar-evidence"
+          echo 'PASS: all ten ECC native independent interoperability checks completed'
+
+      - name: Generate sanitized fail-closed complete ECC evidence
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'qsc-acvp-ecc-scalar-evidence'
+          evidence.mkdir(parents=True, exist_ok=True)
+          algorithms = [
+              'ECDH-P256', 'ECDH-P384', 'ECDH-P521',
+              'ECDSA-P256', 'ECDSA-P384', 'ECDSA-P521',
+              'X25519', 'X448', 'Ed25519', 'Ed448',
+          ]
+          adapter_ok = False
+          oracle_ok = False
+          adapter_status = 'NOT_RUN_OR_UNREADABLE'
+          oracle_status = 'NOT_RUN_OR_UNREADABLE'
+          try:
+              adapter = json.loads((evidence / 'ecc-acvp-adapter-results.json').read_text(encoding='utf-8'))
+              adapter_status = adapter.get('status', 'MISSING')
+              adapter_ok = (
+                  adapter_status == 'PASS_LOCAL_ADAPTER_ONLY'
+                  and adapter.get('total_tests') == 33
+                  and adapter.get('skipped_tests') == 0
+                  and adapter.get('ecdsa_p384') == 'TESTED'
+              )
+          except (OSError, ValueError, TypeError, AttributeError):
+              pass
+          try:
+              oracle = json.loads((evidence / 'ecc-results.json').read_text(encoding='utf-8'))
+              oracle_status = oracle.get('status', 'MISSING')
+              records = oracle.get('algorithms', [])
+              seen = [record.get('algorithm') for record in records]
+              oracle_ok = (
+                  oracle_status == 'PASS_WITH_COVERAGE_GAPS'
+                  and seen == algorithms
+                  and all(record.get('status') == 'PASS'
+                          and isinstance(record.get('cases'), int)
+                          and record.get('cases') > 0 for record in records)
+                  and oracle.get('not_run') == ['NIST server ACVP vectors']
+              )
+          except (OSError, ValueError, TypeError, AttributeError):
+              pass
+          config_ok = (evidence / 'build-configuration.txt').is_file()
+          complete = adapter_ok and oracle_ok and config_ok
+          report = {
+              'type': 'QSC_LINUX_SCALAR_COMPLETE_ECC_OFFLINE_NOT_ACVTS',
+              'timestamp_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'qsc_git_sha': os.environ.get('QSC_DEPENDENCY_SHA', 'NOT_RECORDED'),
+              'qualification_git_sha': os.environ.get('GITHUB_SHA', 'NOT_RECORDED'),
+              'runner': 'ubuntu-24.04',
+              'architecture': 'x86_64',
+              'isa_profile': 'scalar',
+              'algorithms': algorithms,
+              'adapter': {'status': adapter_status, 'complete': adapter_ok},
+              'oracle': {'status': oracle_status, 'complete': oracle_ok},
+              'build_configuration': 'PRESENT' if config_ok else 'MISSING',
+              'nist_demo': 'NOT_RUN',
+              'external_acvts_verdict': 'NOT_RUN',
+              'complete_library_qualification': False,
+              'status': 'OFFLINE_ECC_PASS' if complete else 'FAIL_OR_INCOMPLETE',
+          }
+          (evidence / 'run-manifest.json').write_text(
+              json.dumps(report, indent=2) + '\n', encoding='utf-8')
+          print('Complete Linux scalar ECC offline checks:', report['status'])
+          PY
+
+      - name: Upload sanitized ECC evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-acvp-linux-x64-scalar-ecc-offline
+          path: ${{ runner.temp }}/qsc-acvp-ecc-scalar-evidence/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Enforce complete independent ECC evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'qsc-acvp-ecc-scalar-evidence/run-manifest.json'
+          if not path.is_file() or json.loads(path.read_text(encoding='utf-8')).get('status') != 'OFFLINE_ECC_PASS':
+              raise SystemExit('FAIL: Linux scalar ECC evidence is incomplete')
+          print('PASS: standalone ECC offline tests (not NIST validation)')
+          PY
