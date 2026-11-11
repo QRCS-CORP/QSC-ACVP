@@ -124,6 +124,65 @@ class DemoClientTests(unittest.TestCase):
             with self.subTest(timestamp=timestamp), self.assertRaises(ValueError):
                 client.totp(seed, timestamp)
 
+    def test_expired_session_token_refreshes_once_and_preserves_claims(self):
+        """Only an explicit 401 permits one scoped TOTP login and replay."""
+        class ExpiringTransport(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector and token == "private-session-token":
+                    self.calls.append((method, path, token, body))
+                    raise client.AcvpUnauthorized("ACVP bearer token expired")
+                if method == "POST" and path == client.DEMO_API + "/login" and body[1].get("accessToken"):
+                    self.calls.append((method, path, token, body))
+                    self.renewal = body
+                    return [{"acvVersion": "1.0"}, {"accessToken": "private-refreshed-token"}]
+                return super().request(method, path, token, body)
+
+        server = ExpiringTransport()
+        seed = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
+        report = client.execute(server, Oracle(), seed, ("SHA2-256",), poll_count=1)
+        self.assertEqual(report["status"], "PASS_DEMO_SAMPLE")
+        self.assertEqual(server.renewal[1]["accessToken"], "private-session-token")
+        self.assertEqual(len(server.renewal[1]["password"]), 8)
+        self.assertTrue(any(method == "POST" and path == server.vector + "/results"
+                            and token == "private-refreshed-token"
+                            for method, path, token, body in server.calls))
+        self.assertNotIn("private-session-token", str(report))
+        self.assertNotIn("private-refreshed-token", str(report))
+
+    def test_refresh_missing_token_does_not_retry_or_pass(self):
+        """An unsuccessful refresh never produces a positive session result."""
+        class MissingRefresh(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    raise client.AcvpUnauthorized("expired")
+                if method == "POST" and path == client.DEMO_API + "/login" and body[1].get("accessToken"):
+                    return [{"acvVersion": "1.0"}, {}]
+                return super().request(method, path, token, body)
+
+        server = MissingRefresh()
+        report = client.execute(server, Oracle(),
+                                "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                                ("SHA2-256",), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        self.assertFalse(report["server_passed"])
+
+    def test_non401_network_error_does_not_retry_ambiguous_submission(self):
+        """Network errors are fail-closed rather than causing duplicate POSTs."""
+        class BrokenSubmit(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "POST" and path == self.vector + "/results":
+                    self.calls.append((method, path, token, body))
+                    raise OSError("test-only network failure")
+                return super().request(method, path, token, body)
+
+        server = BrokenSubmit()
+        report = client.execute(server, Oracle(),
+                                "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                                ("SHA2-256",), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        self.assertEqual(sum(1 for method, path, token, body in server.calls
+                             if method == "POST" and path == server.vector + "/results"), 1)
+
     def test_registration_is_byte_aligned_and_sample_only(self):
         registration = client.registration(("SHA2-256", "SHA3-256"))
         self.assertTrue(registration[1]["isSample"])
