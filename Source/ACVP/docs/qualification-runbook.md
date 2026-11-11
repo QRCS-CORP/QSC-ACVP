@@ -50,6 +50,7 @@ Following a reviewed Linux scalar PASS, run the separate manually dispatched [Li
 | 07 | Linux x64 scalar ML-DSA-44/65/87 | [OFFLINE_MLDSA_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42936426475) | Same pinned revision |
 | 08 | Linux x64 scalar SLH-DSA SHAKE-128s/f, 192s/f, 256s/f | [OFFLINE_SLHDSA_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42938226182) | Same pinned revision |
 | 09 | Linux x64 scalar complete ECC interoperability | [OFFLINE_ECC_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42939152065) | Same pinned revision; P-384 passed; zero skips |
+| 10 | Linux x64 AVX2/AES-NI ML-KEM-512/768/1024 | Not executed | Accelerated backend symbol and ISA evidence required |
 
 These are preliminary offline self-consistency and interoperability checks. They are not ACVTS server-generated verdicts, do not certify QSC, and do not establish complete operating-environment or dynamic branch coverage.
 
@@ -77,3 +78,8 @@ After independently reviewing the ML-DSA results, manually dispatch [Linux x64 s
 ## Next algorithm family: complete elliptic-curve interoperability
 
 After reviewing Run 08, manually dispatch [Linux x64 scalar ECC offline qualification](../../../.github/workflows/qsc-acvp-linux-ecc-scalar.yml). The native shared-library build uses the pinned QSC source and GCC scalar profile. The complete ECC ACVP adapter suite requires all 33 tests with zero skips, including ECDSA P-384. A separate independent `cryptography` oracle checks all ten named ECDH (P-256/P-384/P-521), ECDSA (P-256/P-384/P-521), X25519/X448 and Ed25519/Ed448 operations. The evidence manifest fails closed if any algorithm is missing, a test is skipped, the native comparison fails or P-384 is pending. Test completion is **offline ECC interoperability evidence only**, not a NIST server verdict or FIPS certificate. The workflow is independently dispatched and must not run concurrently with another qualification job.
+
+
+## Next independent ISA profile for ML-KEM (Run 10)
+
+After reviewing the complete scalar ECC result, manually dispatch [Linux x64 AVX2/AES-NI ML-KEM offline qualification](../../../.github/workflows/qsc-acvp-linux-mlkem-avx2.yml) on `ubuntu-24.04`. It uses the pinned QSC source, the verified `avx2-aesni` compilation profile, and a separately compiled post-quantum shared library. The workflow checks runner AVX2/AES-NI/PCLMUL features; requires the AVX2 ML-KEM-512/768/1024 backend symbols and 256-bit packed multiplication/XOR instructions in the binary; executes 12 fail-closed parser regressions and three native parameter-set tests; and uploads a separate sanitized artifact. Static instruction presence is not dynamic branch coverage. This is an offline FIPS 203 adapter test, not NIST ACVTS validation. Run 10 alone and inspect its evidence before preparing or dispatching another algorithm family.
