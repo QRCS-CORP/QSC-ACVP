@@ -22,6 +22,8 @@ The [Linux x64 AVX2 ML-DSA and SLH-DSA offline qualification](.github/workflows/
 
 The [Linux x64 scalar complete ECC interoperability workflow](.github/workflows/qsc-acvp-linux-ecc-scalar.yml) is a separately dispatched stage. It requires all 33 native ACVP adapter regressions with no skips, including mandatory ECDSA P-384, and ten independently checked native ECC operations spanning ECDH, ECDSA, X25519/X448 and Ed25519/Ed448. Fail-closed evidence distinguishes offline interoperability from any NIST validation verdict.
 
+The [Linux x64 AVX2 complete ECC interoperability workflow](.github/workflows/qsc-acvp-linux-ecc-avx2.yml) is a separate manual stage requiring all 33 ECC adapter regressions with zero skips, ten independent ECC operations including ECDSA P-384, and CPU/compiled AVX2 instruction evidence. Static AVX2 code inspection does not imply dynamic coverage of every elliptic-curve arithmetic path.
+
 ## Repository layout
 
 - `Source/ACVP/` — independent CMake build, bridges, offline adapters and Python tests
