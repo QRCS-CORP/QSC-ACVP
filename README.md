@@ -12,7 +12,7 @@ The [Linux x64 AVX2/AES-NI](.github/workflows/qsc-acvp-linux-avx2.yml), [Windows
 
 ## Independent post-quantum algorithm stages
 
-The [Linux x64 scalar ML-KEM FIPS 203 offline qualification](.github/workflows/qsc-acvp-linux-mlkem-scalar.yml) checks all three ML-KEM parameter sets with native adapter and vector-response regression tests. The [Linux x64 scalar ML-DSA FIPS 204 offline qualification](.github/workflows/qsc-acvp-linux-mldsa-scalar.yml) is a separate manually dispatched stage covering ML-DSA-44, ML-DSA-65 and ML-DSA-87, with individually invoked signing/verification and parser tests. Complete and review one stage before launching the next. Each has its own pinned source revision and fail-closed evidence artifact. These are offline adapter tests, not NIST ACVTS validation.
+The [Linux x64 scalar ML-KEM FIPS 203 offline qualification](.github/workflows/qsc-acvp-linux-mlkem-scalar.yml) checks all three ML-KEM parameter sets with native adapter and vector-response regression tests. The [Linux x64 scalar ML-DSA FIPS 204 offline qualification](.github/workflows/qsc-acvp-linux-mldsa-scalar.yml) covers ML-DSA-44, ML-DSA-65 and ML-DSA-87 with individually invoked signing/verification and parser tests. The [Linux x64 scalar SLH-DSA FIPS 205 offline qualification](.github/workflows/qsc-acvp-linux-slhdsa-scalar.yml) is a third separate manual stage covering all six SHAKE parameter sets with individual native and parser regression tests. Complete and review one stage before launching the next. Each has its own pinned source revision and fail-closed evidence artifact. These are offline adapter tests, not NIST ACVTS validation.
 
 ## Repository layout
 
