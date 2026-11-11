@@ -275,7 +275,8 @@ class DemoTransport:
             raise ValueError("Unexpected empty ACVP response")
         result = json.loads(raw)
         if (not isinstance(result, list) or len(result) != 2 or
-                result[0].get("acvVersion") != "1.0" or not isinstance(result[1], dict)):
+                not isinstance(result[0], dict) or result[0].get("acvVersion") != "1.0" or
+                not isinstance(result[1], dict)):
             raise ValueError("Unrecognized ACVP response envelope")
         return result
 
@@ -350,6 +351,9 @@ class RefreshingTransport:
                     "POST", DEMO_API + "/login", body=[
                         {"acvVersion": "1.0"},
                         {"password": totp(self._seed, time.time()), "accessToken": active}])
+                if (not isinstance(fresh, list) or len(fresh) != 2 or
+                        not isinstance(fresh[1], dict)):
+                    raise ValueError("ACVTS JWT renewal returned an invalid envelope")
                 renewed = fresh[1].get("accessToken")
                 if not isinstance(renewed, str) or not renewed:
                     raise ValueError("ACVTS JWT renewal did not return an access token")
