@@ -4,6 +4,10 @@ Independent cryptographic qualification adapters, offline tests, and GitHub-host
 
 QSC is checked out as an **external read-only dependency**, pinned separately for each run. This repository contains no production QSC cryptographic source files and does not modify the QSC repository.
 
+## Initial offline qualification campaign — completed
+
+The [QSC Offline Qualification Evidence Report](Source/ACVP/docs/offline-qualification-report.md) documents **13 of 13 verified, source-pinned GitHub Actions PASS stages**, including Windows and Linux x64, Linux ARM64 and macOS Apple Silicon, the selected scalar and accelerated compilation profiles, ECC interoperability, and FIPS 203/204/205 algorithm-family prequalification. All thirteen designated runs and their archived evidence artifacts are indexed in the report. This is **offline prequalification only**: no authenticated NIST ACVTS validation, CAVP algorithm certificate, exhaustive instruction-path coverage or FIPS 140-3 validation is claimed. GitHub evidence artifacts are configured for 14-day retention and should be preserved separately for long-term auditability.
+
 ## Initial qualification profile
 
 The [Linux x64 scalar offline bootstrap](.github/workflows/qsc-acvp-linux-scalar.yml) is **manually dispatched** on a standard Ubuntu 24.04 GitHub-hosted runner. It accepts an immutable 40-character QSC commit SHA (default `43c8aa2afe9d38c3ddf9bac0107196545981ac28`), checks the scalar compilation macros, builds native SHA/AES adapters, runs offline SHA/HMAC, XOF, KDF and AES tests, and retains sanitized evidence for 14 days.
