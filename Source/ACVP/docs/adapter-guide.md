@@ -66,21 +66,28 @@ and the `demo_client.py` driver for mutual TLS, TOTP login, sample registration,
 sequential vector fetch, response submission, bounded retry handling, and a
 sanitized server verdict. It does **not** perform production CAVP validation.
 
-The default registrations include SHA2-256/384/512, SHA3-256/512,
-SHAKE-128/256 (FIPS202 revision), HMAC-SHA2-256/384/512,
-ACVP-AES-ECB and ACVP-AES-GCM. The adapter
-implements byte-aligned AFT, SHAKE VOT and SHA2/SHA3 MCT. It rejects LDT,
-bit-oriented messages, unsupported tests, and server-directed large-submission
-handling. These are honest coverage limits; no unexecuted primitive is
-advertised as validated.
+The protected first-contact workflow selects **only SHA2-256**. Broader
+capabilities exist in the adapter and require independent schema review before
+live registration. The response engine supports selected byte-aligned AFT,
+SHAKE VOT and SHA2/SHA3 MCT, and refuses unsupported LDT or bit-oriented
+inputs. The transport now supports bounded, server-granted large submissions
+only to the NIST Demo host or a specifically allowlisted HTTPS origin. It
+never silently treats unsupported algorithms or modes as validated.
 
 NIST must first approve the client TLS identity and issue TOTP credentials.
 Create a protected GitHub environment named `acvts-demo`, with required manual
 approval, and add three **environment secrets**:
 
-- `ACVP_DEMO_CERT_B64`: base64 of the authorized client certificate PEM file
-- `ACVP_DEMO_KEY_B64`: base64 of the matching TLS private key PEM file
-- `ACVP_DEMO_TOTP_SEED`: NIST-issued TOTP shared secret, base32 encoded
+- `ACVTS_DEMO_CERT_B64`: Base64 encoding of the authorized client certificate PEM file
+- `ACVTS_DEMO_KEY_B64`: Base64 encoding of the matching TLS private key PEM file
+- `ACVTS_DEMO_TOTP_B64`: the **NIST-issued Base64 TOTP seed**, unchanged
+
+Set the protected environment variable `ACVTS_DEMO_ENABLED=true`, require
+manual approval, and restrict its deployment branches to reviewed `main`.
+The client computes 8-digit HMAC-SHA256 TOTP values with 30-second steps.
+The live workflow requires its `approve_nist_network_session` input to be
+explicitly enabled. No NIST connection occurs during the credential-free
+readiness workflow `.github/workflows/qsc-acvp-demo-readiness.yml`.
 
 No secret may be committed to the repository. Credentials are materialized
 only in the runner temporary directory, removed at job completion and excluded
@@ -330,9 +337,10 @@ hybrid secrets, multi-expansion, unsupported encodings and unadvertised HMACs.
 Both revisions are included in the offline KDF regression, which compares
 native QSC output to an independently implemented HMAC-based HKDF oracle.
 
-Live registration is **opt-in**, not automatic: select `include_kda_hkdf` in
-`qsc-acvp-demo.yml` and configure `ACVP_KDA_DRBG_VALIDATION` as a protected
-environment variable containing a real, applicable DRBG validation identifier.
+Live KDA-HKDF is **not** enabled in the first-contact
+`qsc-acvp-demo.yml` workflow. A subsequent, separately reviewed manual
+workflow must select KDA-HKDF explicitly and supply a real, applicable
+`ACVP_KDA_DRBG_VALIDATION` prerequisite.
 The KDA registration includes the SHA/HMAC prerequisites from the same Demo
 session. No DRBG validation is implied by local testing; missing prerequisites
 fail before registration. Neither offline tests nor mock Demo tests establish
@@ -396,12 +404,13 @@ coverage. An offline PASS is **not** a NIST Demo or CAVP validation.
 
 ## Authenticated Demo acceptance
 
-The protected Demo workflow is configured to request ECC and KDA/HKDF by
-default. A full live session requires an updated P-384 implementation, NIST
-issued mutual-TLS/TOTP identity, applicable DRBG prerequisite evidence, and a
-qualified random-generation path. If a prerequisite is absent, the workflow
-fails without claiming certification. Manual partial selections remain useful
-for transport diagnostics, but do not satisfy full project qualification.
+The protected live Demo workflow performs **only one SHA2-256 sample** after
+explicit operator authorization and the GitHub `acvts-demo` environment gate.
+ECC and KDA-HKDF are not selected by default: a later full live session
+requires NIST-issued mTLS/TOTP identity, applicable verified DRBG prerequisite
+evidence, a qualified random-generation path, and a separate capabilities
+and operating-environment review. A passing single-algorithm sample is only
+a transport and basic algorithm integration check, not complete QSC validation.
 
 The authenticated client currently advertises the supported AES, SHA/HMAC,
 PBKDF, KDA/HKDF, FIPS post-quantum and ECC modes. The cSHAKE/KMAC response
