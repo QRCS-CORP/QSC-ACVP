@@ -52,7 +52,7 @@ Following a reviewed Linux scalar PASS, run the separate manually dispatched [Li
 | 09 | Linux x64 scalar complete ECC interoperability | [OFFLINE_ECC_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42939152065) | Same pinned revision; P-384 passed; zero skips |
 | 10 | Linux x64 AVX2/AES-NI/BMI2 ML-KEM-512/768/1024 | [OFFLINE_MLKEM_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42942535115) | Same pinned revision; three accelerated backends and PEXT verified |
 | 11 | Linux x64 AVX2 ML-DSA-44/65/87 and SLH-DSA SHAKE six sets | [OFFLINE_AVX2_SIGNATURES_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42945489346) | Same pinned revision; 15 tests passed with zero skipped steps |
-| 12 | Linux x64 AVX2 complete ECC interoperability | Not executed | All 33 regressions, ten native algorithms, P-384 and ISA evidence required |
+| 12 | Linux x64 AVX2 complete ECC interoperability | [OFFLINE_ECC_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42948565323) | Same pinned source; 33 tests/zero skips, 10 ECC operations, ISA evidence |
 
 These are preliminary offline self-consistency and interoperability checks. They are not ACVTS server-generated verdicts, do not certify QSC, and do not establish complete operating-environment or dynamic branch coverage.
 
