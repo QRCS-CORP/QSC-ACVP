@@ -1,0 +1,563 @@
+# Separate manual Linux ARM64 FIPS 203/204/205 offline checks; not NIST validation.
+name: QSC ACVP Linux ARM64 post-quantum offline qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      qsc_ref:
+        description: 'Immutable 40-character QSC source commit to qualify'
+        required: true
+        type: string
+        default: 43c8aa2afe9d38c3ddf9bac0107196545981ac28
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-sequential-qualification
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  linux-arm64-post-quantum:
+    name: Linux ARM64 NEON ML-KEM, ML-DSA and SLH-DSA offline qualification
+    if: github.repository == 'QRCS-CORP/QSC-ACVP'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout reviewed qualification revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Checkout pinned QSC dependency read-only
+        uses: actions/checkout@v4
+        with:
+          repository: QRCS-CORP/QSC
+          ref: ${{ inputs.qsc_ref }}
+          path: dependency/QSC
+          persist-credentials: false
+
+      - name: Verify pinned source and native ARM64 crypto CPU
+        shell: bash
+        env:
+          QSC_REQUESTED_SHA: ${{ inputs.qsc_ref }}
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = aarch64
+          if [[ ! "$QSC_REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'FAIL: source must be pinned to an immutable 40-character SHA' >&2
+            exit 1
+          fi
+          sha="$(git -C dependency/QSC rev-parse HEAD)"
+          if [[ "$sha" != "$QSC_REQUESTED_SHA" ]]; then
+            echo 'FAIL: QSC checkout differs from the immutable requested revision' >&2
+            exit 1
+          fi
+          printf 'QSC_DEPENDENCY_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
+          echo "QSC source commit: $sha"
+          echo "Qualification commit: $(git rev-parse HEAD)"
+          features="$(grep -m1 -E '^(Features|flags)[[:space:]]*:' /proc/cpuinfo)"
+          test -n "$features"
+          for feature in asimd aes pmull sha2; do
+            if ! grep -qw "$feature" <<< "$features"; then
+              echo "FAIL: required Linux ARM64 CPU feature is absent: $feature" >&2
+              exit 1
+            fi
+          done
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          mkdir -p "$evidence"
+          {
+            echo 'Required ARM64 CPU features: asimd aes pmull sha2'
+            uname -a
+            printf '%s\n' "$features"
+          } > "$evidence/cpu-features.txt"
+          echo 'PASS: immutable QSC source and native ARM64 crypto CPU verified'
+
+      - name: Configure isolated ARM64 crypto post-quantum build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -S Source/ACVP -B "$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQSC_ACVP_TLS_CLASS=3 \
+            -DQSC_ACVP_ISA_PROFILE=arm64-crypto
+          grep -q '^QSC_ACVP_PROFILE_MACROS_VERIFIED:INTERNAL=1$' \
+            "$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/CMakeCache.txt"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          {
+            echo "QSC source SHA: $QSC_DEPENDENCY_SHA"
+            echo "Qualification SHA: $GITHUB_SHA"
+            echo 'ISA profile: arm64-crypto'
+            cc --version | head -n 1
+            grep -E '^(QSC_ACVP_ISA_PROFILE|QSC_ACVP_TLS_CLASS|QSC_ACVP_PROFILE_MACROS_VERIFIED):' \
+              "$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/CMakeCache.txt"
+          } > "$evidence/build-configuration.txt"
+
+      - name: Compile pinned native ML-KEM, ML-DSA and SLH-DSA adapters
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build "$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build" \
+            --target qsc_acvp_pq --parallel 2
+          test -s "$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so"
+
+      - name: Verify native ARM64 post-quantum symbols and NEON machine code
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          library="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so"
+          nm -D --defined-only "$library" > "$RUNNER_TEMP/qsc-arm64-pq-symbols.txt"
+          for parameter in 512 768 1024; do
+            if ! grep -Eq "[[:space:]]qsc_kyber${parameter}_generate_seeded_keypair$" \
+              "$RUNNER_TEMP/qsc-arm64-pq-symbols.txt"; then
+              echo "FAIL: ML-KEM-$parameter public seeded-keygen symbol missing" >&2
+              exit 1
+            fi
+          done
+          for parameter in 44 65 87; do
+            if ! grep -Eq "[[:space:]]qsc_mldsa${parameter}_sign_ex$" \
+              "$RUNNER_TEMP/qsc-arm64-pq-symbols.txt"; then
+              echo "FAIL: ML-DSA-$parameter signing symbol missing" >&2
+              exit 1
+            fi
+          done
+          for parameter in 128s 128f 192s 192f 256s 256f; do
+            if ! grep -Eq "[[:space:]]qsc_slhdsa_shake${parameter}_sign_deterministic$" \
+              "$RUNNER_TEMP/qsc-arm64-pq-symbols.txt"; then
+              echo "FAIL: SLH-DSA-SHAKE-$parameter signing symbol missing" >&2
+              exit 1
+            fi
+          done
+          objdump -d "$library" > "$RUNNER_TEMP/qsc-arm64-pq-disassembly.txt"
+          if ! grep -Eq '[[:space:]]smull[[:space:]]+v[0-9]+' "$RUNNER_TEMP/qsc-arm64-pq-disassembly.txt"; then
+            echo 'FAIL: PQ library lacks NEON polynomial signed multiply-long instruction' >&2
+            exit 1
+          fi
+          if ! grep -Eq '[[:space:]]eor[[:space:]]+v[0-9]+' "$RUNNER_TEMP/qsc-arm64-pq-disassembly.txt"; then
+            echo 'FAIL: PQ library lacks NEON vector XOR' >&2
+            exit 1
+          fi
+          {
+            echo 'ML-KEM three public parameter-set symbols: PRESENT'
+            echo 'ML-DSA three public parameter-set symbols: PRESENT'
+            echo 'SLH-DSA SHAKE six public parameter-set symbols: PRESENT'
+            echo 'ARM64 NEON vector SMULL and EOR instructions: PRESENT'
+            echo 'Compiled instruction presence does not prove complete dynamic branch coverage.'
+          } > "$evidence/isa-evidence.txt"
+          echo 'PASS: ARM64 PQ public interfaces and compiled NEON machine code'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run twelve ML-KEM parser and fail-closed regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest discover -s Source/ACVP/tests -p test_mlkem_vectors.py -v \
+            2>&1 | tee "$evidence/mlkem-parser.log"
+          grep -Eq '^Ran 12 tests in' "$evidence/mlkem-parser.log"
+          grep -Eq '^OK$' "$evidence/mlkem-parser.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mlkem-parser.log"; then
+            echo 'FAIL: ML-KEM parser regressions were skipped or failed' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mlkem-parser.status"
+          echo 'PASS: twelve ML-KEM vector/parser regressions'
+
+      - name: Run all three native ML-KEM FIPS 203 parameter-set checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python Source/ACVP/mlkem_check.py \
+            --library "$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so" \
+            --output "$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          echo 'ML-KEM native adapter returned; final manifest enforces three parameter-set results'
+
+      - name: Run ML-DSA seeded key generation parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_ml_dsa_seeded_keygen_vector \
+            2>&1 | tee "$evidence/mldsa-parser-keygen.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa-parser-keygen.log"
+          grep -Eq '^OK$' "$evidence/mldsa-parser-keygen.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa-parser-keygen.log"; then
+            echo 'FAIL: ML-DSA seeded key generation parser' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa-parser-keygen.status"
+          echo 'PASS: ML-DSA seeded key generation parser'
+
+      - name: Run ML-DSA randomized-signing rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_ml_dsa_rejects_randomized_siggen \
+            2>&1 | tee "$evidence/mldsa-parser-randomization.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa-parser-randomization.log"
+          grep -Eq '^OK$' "$evidence/mldsa-parser-randomization.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa-parser-randomization.log"; then
+            echo 'FAIL: ML-DSA randomized-signing rejection' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa-parser-randomization.status"
+          echo 'PASS: ML-DSA randomized-signing rejection'
+
+      - name: Run ML-DSA internal-mu rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_ml_dsa_rejects_internal_mu_siggen \
+            2>&1 | tee "$evidence/mldsa-parser-mu.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa-parser-mu.log"
+          grep -Eq '^OK$' "$evidence/mldsa-parser-mu.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa-parser-mu.log"; then
+            echo 'FAIL: ML-DSA internal-mu rejection' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa-parser-mu.status"
+          echo 'PASS: ML-DSA internal-mu rejection'
+
+      - name: Run ML-DSA-44 native signing and verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_mldsa44 \
+            2>&1 | tee "$evidence/mldsa44-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa44-native.log"
+          grep -Eq '^OK$' "$evidence/mldsa44-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa44-native.log"; then
+            echo 'FAIL: ML-DSA-44 native signing and verification' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa44-native.status"
+          echo 'PASS: ML-DSA-44 native signing and verification'
+
+      - name: Run ML-DSA-65 native signing and verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_mldsa65 \
+            2>&1 | tee "$evidence/mldsa65-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa65-native.log"
+          grep -Eq '^OK$' "$evidence/mldsa65-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa65-native.log"; then
+            echo 'FAIL: ML-DSA-65 native signing and verification' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa65-native.status"
+          echo 'PASS: ML-DSA-65 native signing and verification'
+
+      - name: Run ML-DSA-87 native signing and verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_mldsa87 \
+            2>&1 | tee "$evidence/mldsa87-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/mldsa87-native.log"
+          grep -Eq '^OK$' "$evidence/mldsa87-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/mldsa87-native.log"; then
+            echo 'FAIL: ML-DSA-87 native signing and verification' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/mldsa87-native.status"
+          echo 'PASS: ML-DSA-87 native signing and verification'
+
+      - name: Run SLH-DSA seeded key generation parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_slhdsa_seeded_keygen_vector \
+            2>&1 | tee "$evidence/slhdsa-parser-keygen.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa-parser-keygen.log"
+          grep -Eq '^OK$' "$evidence/slhdsa-parser-keygen.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa-parser-keygen.log"; then
+            echo 'FAIL: SLH-DSA seeded key generation parser' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa-parser-keygen.status"
+          echo 'PASS: SLH-DSA seeded key generation parser'
+
+      - name: Run SLH-DSA nondeterministic-signing rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_slhdsa_rejects_nondeterministic_signatures \
+            2>&1 | tee "$evidence/slhdsa-parser-nondeterministic.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa-parser-nondeterministic.log"
+          grep -Eq '^OK$' "$evidence/slhdsa-parser-nondeterministic.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa-parser-nondeterministic.log"; then
+            echo 'FAIL: SLH-DSA nondeterministic-signing rejection' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa-parser-nondeterministic.status"
+          echo 'PASS: SLH-DSA nondeterministic-signing rejection'
+
+      - name: Run SLH-DSA prehash rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_vector_modes.PqVectorModeTests.test_slhdsa_rejects_prehash \
+            2>&1 | tee "$evidence/slhdsa-parser-prehash.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa-parser-prehash.log"
+          grep -Eq '^OK$' "$evidence/slhdsa-parser-prehash.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa-parser-prehash.log"; then
+            echo 'FAIL: SLH-DSA prehash rejection' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa-parser-prehash.status"
+          echo 'PASS: SLH-DSA prehash rejection'
+
+      - name: Run SLH-DSA-SHAKE-128s native signing and verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa128s \
+            2>&1 | tee "$evidence/slhdsa128s-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa128s-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa128s-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa128s-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-128s native signing and verification' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa128s-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-128s native signing and verification'
+
+      - name: Run SLH-DSA-SHAKE-128f native signing and verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa128f \
+            2>&1 | tee "$evidence/slhdsa128f-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa128f-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa128f-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa128f-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-128f native signing and verification' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa128f-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-128f native signing and verification'
+
+      - name: Run SLH-DSA-SHAKE-192s native signing and verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa192s \
+            2>&1 | tee "$evidence/slhdsa192s-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa192s-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa192s-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa192s-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-192s native signing and verification' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa192s-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-192s native signing and verification'
+
+      - name: Run SLH-DSA-SHAKE-192f native signing and verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa192f \
+            2>&1 | tee "$evidence/slhdsa192f-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa192f-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa192f-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa192f-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-192f native signing and verification' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa192f-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-192f native signing and verification'
+
+      - name: Run SLH-DSA-SHAKE-256s native signing and verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa256s \
+            2>&1 | tee "$evidence/slhdsa256s-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa256s-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa256s-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa256s-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-256s native signing and verification' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa256s-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-256s native signing and verification'
+
+      - name: Run SLH-DSA-SHAKE-256f native signing and verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/Source/ACVP/tests"
+          export QSC_ACVP_PQ_LIBRARY="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-build/libqsc_acvp_pq.so"
+          evidence="$RUNNER_TEMP/qsc-acvp-pq-arm64-crypto-evidence"
+          python -m unittest -v test_pq_signature_native.PqSignatureNativeTests.test_slhdsa256f \
+            2>&1 | tee "$evidence/slhdsa256f-native.log"
+          grep -Eq '^Ran 1 test in' "$evidence/slhdsa256f-native.log"
+          grep -Eq '^OK$' "$evidence/slhdsa256f-native.log"
+          if grep -Eq 'skipped=|FAILED|ERROR' "$evidence/slhdsa256f-native.log"; then
+            echo 'FAIL: SLH-DSA-SHAKE-256f native signing and verification' >&2
+            exit 1
+          fi
+          echo PASS > "$evidence/slhdsa256f-native.status"
+          echo 'PASS: SLH-DSA-SHAKE-256f native signing and verification'
+
+      - name: Generate sanitized fail-closed ARM64 post-quantum evidence
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'qsc-acvp-pq-arm64-crypto-evidence'
+          evidence.mkdir(parents=True, exist_ok=True)
+          expected = {
+              'mldsa-parser-keygen': 'mldsa-parser-keygen.status',
+              'mldsa-parser-randomization': 'mldsa-parser-randomization.status',
+              'mldsa-parser-mu': 'mldsa-parser-mu.status',
+              'mldsa44-native': 'mldsa44-native.status',
+              'mldsa65-native': 'mldsa65-native.status',
+              'mldsa87-native': 'mldsa87-native.status',
+              'slhdsa-parser-keygen': 'slhdsa-parser-keygen.status',
+              'slhdsa-parser-nondeterministic': 'slhdsa-parser-nondeterministic.status',
+              'slhdsa-parser-prehash': 'slhdsa-parser-prehash.status',
+              'slhdsa128s-native': 'slhdsa128s-native.status',
+              'slhdsa128f-native': 'slhdsa128f-native.status',
+              'slhdsa192s-native': 'slhdsa192s-native.status',
+              'slhdsa192f-native': 'slhdsa192f-native.status',
+              'slhdsa256s-native': 'slhdsa256s-native.status',
+              'slhdsa256f-native': 'slhdsa256f-native.status',
+          }
+          results = {}
+          for name, filename in expected.items():
+              try:
+                  results[name] = (evidence / filename).read_text(
+                      encoding='utf-8').strip() == 'PASS'
+              except OSError:
+                  results[name] = False
+          mlkem_ok = False
+          mlkem_native = 0
+          mlkem_status = 'NOT_RUN_OR_UNREADABLE'
+          try:
+              data = json.loads((evidence / 'mlkem-results.json').read_text(encoding='utf-8'))
+              mlkem_native = data.get('native_tests', 0)
+              mlkem_status = data.get('status', 'MISSING')
+              mlkem_ok = (mlkem_status == 'PASS_LOCAL_ADAPTER_ONLY'
+                          and mlkem_native == 3
+                          and data.get('parameter_sets') == [
+                              'ML-KEM-512', 'ML-KEM-768', 'ML-KEM-1024'])
+          except (OSError, ValueError, AttributeError, TypeError):
+              pass
+          try:
+              mlkem_parser_ok = ((evidence / 'mlkem-parser.status').read_text(
+                  encoding='utf-8').strip() == 'PASS')
+          except OSError:
+              mlkem_parser_ok = False
+          config_ok = (evidence / 'build-configuration.txt').is_file()
+          cpu_ok = (evidence / 'cpu-features.txt').is_file()
+          isa_ok = (evidence / 'isa-evidence.txt').is_file()
+          complete = (all(results.values()) and mlkem_ok and mlkem_parser_ok
+                      and config_ok and cpu_ok and isa_ok)
+          report = {
+              'type': 'QSC_LINUX_ARM64_POST_QUANTUM_FIPS203_204_205_OFFLINE_NOT_ACVTS',
+              'timestamp_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'qsc_git_sha': os.environ.get('QSC_DEPENDENCY_SHA', 'NOT_RECORDED'),
+              'qualification_git_sha': os.environ.get('GITHUB_SHA', 'NOT_RECORDED'),
+              'runner': 'ubuntu-24.04-arm',
+              'architecture': 'aarch64',
+              'isa_profile': 'arm64-crypto',
+              'mlkem_native_count': mlkem_native,
+              'mlkem_native_status': mlkem_status,
+              'mlkem_parser_regressions': 'PASS' if mlkem_parser_ok else 'MISSING',
+              'mldsa_native_passed': sum(results[x] for x in (
+                  'mldsa44-native', 'mldsa65-native', 'mldsa87-native')),
+              'slhdsa_native_passed': sum(results[x] for x in (
+                  'slhdsa128s-native', 'slhdsa128f-native', 'slhdsa192s-native',
+                  'slhdsa192f-native', 'slhdsa256s-native', 'slhdsa256f-native')),
+              'signature_parser_regressions_passed': sum(
+                  results[x] for x in expected if '-parser-' in x),
+              'test_results': results,
+              'cpu_feature_check': 'PASS' if cpu_ok else 'MISSING',
+              'compiled_isa_evidence': 'PRESENT' if isa_ok else 'MISSING',
+              'build_configuration': 'PRESENT' if config_ok else 'MISSING',
+              'nist_demo': 'NOT_RUN',
+              'external_acvts_verdict': 'NOT_RUN',
+              'complete_library_qualification': False,
+              'status': 'OFFLINE_ARM64_PQ_PASS' if complete else 'FAIL_OR_INCOMPLETE',
+          }
+          (evidence / 'run-manifest.json').write_text(
+              json.dumps(report, indent=2) + '\n', encoding='utf-8')
+          print('ARM64 post-quantum offline evidence:', report['status'])
+          PY
+
+      - name: Upload sanitized ARM64 PQ evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-acvp-linux-arm64-post-quantum-offline
+          path: ${{ runner.temp }}/qsc-acvp-pq-arm64-crypto-evidence/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Enforce complete ARM64 post-quantum evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = Path(os.environ['RUNNER_TEMP']) / 'qsc-acvp-pq-arm64-crypto-evidence/run-manifest.json'
+          if not manifest.is_file() or json.loads(manifest.read_text(encoding='utf-8')).get('status') != 'OFFLINE_ARM64_PQ_PASS':
+              raise SystemExit('FAIL: ARM64 ML-KEM/ML-DSA/SLH-DSA evidence missing or incomplete')
+          print('PASS: independent ARM64 post-quantum offline qualification; NOT NIST validation')
+          PY
