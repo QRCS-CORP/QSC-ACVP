@@ -265,6 +265,11 @@ foreach(QSC_ACVP_SOURCE IN LISTS QSC_ACVP_PQ_SOURCES)
 endforeach()
 add_library(qsc_acvp_pq SHARED ${QSC_ACVP_PQ_FILES})
 target_include_directories(qsc_acvp_pq PRIVATE "${QSC_ROOT}/QSC")
+# The selected ML-KEM AVX2 backend uses _pext_u32, which requires BMI2.
+# Scope BMI2 to this isolated PQ target; do not alter unrelated ACVP profiles.
+if(QSC_ACVP_ISA_PROFILE STREQUAL "avx2-aesni")
+    target_compile_options(qsc_acvp_pq PRIVATE -mbmi2)
+endif()
 set_target_properties(qsc_acvp_pq PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 if(NOT WIN32)
     target_link_libraries(qsc_acvp_pq PRIVATE m pthread)
