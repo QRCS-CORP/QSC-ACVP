@@ -46,6 +46,7 @@ Following a reviewed Linux scalar PASS, run the separate manually dispatched [Li
 | 03 | Windows x64 MSVC AVX2 | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42914925220) | Same pinned revision |
 | 04 | Linux ARM64 NEON/AES/PMULL | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42917820582) | Same pinned revision |
 | 05 | macOS 15 Apple Silicon ARM64 | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42932360195) | Same pinned revision |
+| 06 | Linux x64 scalar ML-KEM-512/768/1024 | Not executed | Must use reviewed pinned revision |
 
 These are preliminary offline self-consistency and interoperability checks. They are not ACVTS server-generated verdicts, do not certify QSC, and do not establish complete operating-environment or dynamic branch coverage.
 
@@ -53,3 +54,8 @@ These are preliminary offline self-consistency and interoperability checks. They
 ## Next independent profile: macOS ARM64
 
 After reviewing Run 04, manually dispatch the [macOS 15 Apple Silicon ARM64 crypto bootstrap](../../../.github/workflows/qsc-acvp-macos-arm64-crypto.yml) on standard `macos-15` (not the paid `-xlarge` runner). Select the pinned QSC source SHA from previous runs. This profile uses AppleClang and `-march=armv8-a+crypto`, verifies supported Apple Silicon CPU features with `sysctl`, inspects native `.dylib` machine code using `xcrun llvm-objdump`, and performs the same offline SHA/HMAC, XOF, KDF and AES checks. It uses no NIST credentials. Static instruction presence verifies compilation, not dynamic coverage.
+
+
+## Next algorithm family: ML-KEM (FIPS 203)
+
+After reviewing the five SHA/AES platform bootstraps, manually dispatch [Linux x64 scalar ML-KEM offline qualification](../../../.github/workflows/qsc-acvp-linux-mlkem-scalar.yml). The new workflow uses the same pinned source revision and GCC scalar profile, but builds the standalone post-quantum adapter. It tests ML-KEM-512, ML-KEM-768, and ML-KEM-1024 key generation, deterministic encapsulation, decapsulation, altered ciphertext implicit rejection, ACVP envelope handling, and unsupported-input rejection. It records independent parser-regression and native results and fails closed on incomplete evidence. It is **not** an authenticated NIST ACVTS run, independent algorithm certification, or an exhaustive ML-KEM validation. Run separate ML-DSA and SLH-DSA algorithm stages only after the ML-KEM evidence has been reviewed.
