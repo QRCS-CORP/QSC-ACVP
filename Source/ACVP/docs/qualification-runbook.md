@@ -49,7 +49,7 @@ Following a reviewed Linux scalar PASS, run the separate manually dispatched [Li
 | 06 | Linux x64 scalar ML-KEM-512/768/1024 | [OFFLINE_MLKEM_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42933335977) | Same pinned revision |
 | 07 | Linux x64 scalar ML-DSA-44/65/87 | [OFFLINE_MLDSA_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42936426475) | Same pinned revision |
 | 08 | Linux x64 scalar SLH-DSA SHAKE-128s/f, 192s/f, 256s/f | [OFFLINE_SLHDSA_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42938226182) | Same pinned revision |
-| 09 | Linux x64 scalar complete ECC interoperability | Not executed | P-384 mandatory; zero skips required |
+| 09 | Linux x64 scalar complete ECC interoperability | [OFFLINE_ECC_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42939152065) | Same pinned revision; P-384 passed; zero skips |
 
 These are preliminary offline self-consistency and interoperability checks. They are not ACVTS server-generated verdicts, do not certify QSC, and do not establish complete operating-environment or dynamic branch coverage.
 
