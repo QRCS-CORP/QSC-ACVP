@@ -95,9 +95,11 @@ from artifacts. Only the sanitized `demo-results.json` is uploaded. Access
 must be limited to trusted branches and authorized repository maintainers.
 
 Run the protected GitHub workflow manually once credentials have been issued.
-The SHA-only Demo workflow builds `qsc_acvp_hash` independently, so the
-in-progress P-384 signer cannot block transport validation. A passing Demo
-sample session is **not** a CAVP validation certificate.
+The SHA-only Demo workflow builds `qsc_acvp_hash` independently, keeping
+the initial authentication and transport test isolated from ECC and other
+algorithm-family registrations. Offline ECC P-384 checks have passed, but
+their results do not establish any NIST Demo or production verdict. A passing
+Demo sample session is **not** a CAVP validation certificate.
 
 Dedicated PQ and ECC response adapters are now present. Remaining gaps
 include randomized ECDSA signing, non-static-unified KAS-ECC, EdDSA contexts
