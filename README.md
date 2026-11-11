@@ -10,6 +10,10 @@ The [Linux x64 scalar offline bootstrap](.github/workflows/qsc-acvp-linux-scalar
 
 The [Linux x64 AVX2/AES-NI](.github/workflows/qsc-acvp-linux-avx2.yml), [Windows x64 MSVC AVX2](.github/workflows/qsc-acvp-windows-msvc-avx2.yml), [Linux ARM64 NEON/AES/PMULL](.github/workflows/qsc-acvp-linux-arm64-crypto.yml), and [macOS 15 Apple Silicon ARM64](.github/workflows/qsc-acvp-macos-arm64-crypto.yml) workflows run independently, in that order, after evidence from each preceding profile is reviewed. The ARM64 profile uses a native `ubuntu-24.04-arm` GitHub-hosted runner and `-march=armv8-a+crypto`, checks native CPU capabilities, and inspects compiled ARM instructions. Each workflow requires manual dispatch and records independent results. A successful offline bootstrap is **not** complete QSC qualification, a NIST ACVTS verdict, a Demo validation, a production CAVP certificate, or FIPS 140-3 validation. None of these workflows uses NIST credentials.
 
+## Independent post-quantum algorithm stages
+
+The [Linux x64 scalar ML-KEM FIPS 203 offline qualification](.github/workflows/qsc-acvp-linux-mlkem-scalar.yml) checks all three ML-KEM parameter sets with native adapter and vector-response regression tests. The [Linux x64 scalar ML-DSA FIPS 204 offline qualification](.github/workflows/qsc-acvp-linux-mldsa-scalar.yml) is a separate manually dispatched stage covering ML-DSA-44, ML-DSA-65 and ML-DSA-87, with individually invoked signing/verification and parser tests. Complete and review one stage before launching the next. Each has its own pinned source revision and fail-closed evidence artifact. These are offline adapter tests, not NIST ACVTS validation.
+
 ## Repository layout
 
 - `Source/ACVP/` — independent CMake build, bridges, offline adapters and Python tests
