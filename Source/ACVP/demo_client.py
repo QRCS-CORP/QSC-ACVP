@@ -323,6 +323,8 @@ class RefreshingTransport:
 
     def upload_large(self, url: str, token: str, body: list) -> None:
         """Use one-time granted large submission without automatic network retry."""
+        if not hasattr(self._transport, "upload_large"):
+            raise ValueError("ACVP transport cannot perform approved large submissions")
         self._transport.upload_large(url, self._refreshed.get(token, token), body)
 
     def request(self, method: str, path: str, token: str | None = None,
