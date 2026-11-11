@@ -253,6 +253,52 @@ class DemoClientTests(unittest.TestCase):
             transport.upload_large("https://demo.acvts.nist.gov@attacker.example/large/1",
                                    "private", body)
 
+    def test_transient_vector_get_retries_at_most_three_times(self):
+        """429/503 responses are retryable only for idempotent GET requests."""
+        class TransientGet(FakeTransport):
+            def __init__(self):
+                super().__init__()
+                self.failures = 0
+
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector and self.failures < 2:
+                    self.failures += 1
+                    raise client.AcvpTransient("server 503")
+                return super().request(method, path, token, body)
+
+        server = TransientGet()
+        original_sleep = client.time.sleep
+        client.time.sleep = lambda seconds: None
+        try:
+            report = client.execute(
+                server, Oracle(),
+                "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                ("SHA2-256",), poll_count=1)
+        finally:
+            client.time.sleep = original_sleep
+        self.assertEqual(report["status"], "PASS_DEMO_SAMPLE")
+        self.assertEqual(server.failures, 2)
+
+    def test_transient_submission_is_never_replayed(self):
+        """Ambiguous transient POST responses must fail closed, not resubmit."""
+        class UnavailablePost(FakeTransport):
+            def __init__(self):
+                super().__init__()
+                self.submissions = 0
+
+            def request(self, method, path, token=None, body=None):
+                if method == "POST" and path == self.vector + "/results":
+                    self.submissions += 1
+                    raise client.AcvpTransient("server 503")
+                return super().request(method, path, token, body)
+
+        server = UnavailablePost()
+        report = client.execute(server, Oracle(),
+                                "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                                ("SHA2-256",), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        self.assertEqual(server.submissions, 1)
+
     def test_registration_is_byte_aligned_and_sample_only(self):
         registration = client.registration(("SHA2-256", "SHA3-256"))
         self.assertTrue(registration[1]["isSample"])
