@@ -97,7 +97,7 @@ repository files.
   modes, incomplete algorithm coverage and incomplete or inconsistent
   NIST verdicts cannot be reported as passing.
 
-## Verification gates and unexecuted checks
+## Verified credential-free regression evidence
 
 The test suite is
 `python -m unittest discover -s Source/ACVP/tests -p test_demo_client.py -v`.
@@ -106,11 +106,21 @@ missing JWT renewal, GET retry bounds, non-replay of POSTs, large-submission
 grant handling, rejected cross-origin uploads, unsupported vectors, duplicate
 vector sets, coverage checks and negative server verdicts.
 
-**These new regressions are committed, but are not recorded as passed until
-the credential-free GitHub readiness workflow has actually executed.**
-A workflow-definition review is not equivalent to a successful build or test.
-Only the manually dispatched, successful GitHub run and its manifest can
-advance the readiness test gate.
+The credential-free readiness workflow completed with
+**`OFFLINE_DEMO_PROTOCOL_PASS`** in
+[GitHub Actions Run 42960574208](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42960574208).
+The runner successfully performed Python compilation checks and executed
+**25 named mock-server and protocol regression tests with no failures or skips**.
+It verified that NIST credentials were not required and uploaded the
+`qsc-acvp-demo-protocol-readiness-offline` evidence artifact (GitHub artifact
+ID `13828738336`). The artifact was downloaded, its ZIP CRC verified, and its
+`run-manifest.json` independently inspected. The manifest records the reviewed
+qualification commit `30af6129bc13cdab8634c8b5013a2924ca9247fe`,
+`nist_demo: NOT_CONTACTED`, `credentials: NOT_USED`, and
+`status: OFFLINE_DEMO_PROTOCOL_PASS`.
+
+This is a **verified offline protocol-readiness result**, not a NIST server
+verdict. The protected authenticated workflow has not been executed.
 
 ## Post-credential sequence
 
@@ -143,6 +153,6 @@ advance the readiness test gate.
 ## Qualification status
 
 - Original offline campaign: **13 designated stages verified PASS**.
-- Credential-free Demo-client regression workflow: **committed; execution pending**.
+- Credential-free Demo-client regression workflow: **[25/25 PASS, verified](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42960574208)**; evidence manifest `OFFLINE_DEMO_PROTOCOL_PASS`.
 - Authenticated NIST Demo sample: **not executed; NIST credentials required**.
 - NIST production algorithm certification: **not executed**.
