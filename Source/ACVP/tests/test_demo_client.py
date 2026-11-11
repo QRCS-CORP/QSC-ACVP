@@ -112,7 +112,8 @@ class DemoClientTests(unittest.TestCase):
         seed = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
         padded = seed[:12] + " \n " + seed[12:]
         self.assertEqual(client.totp(padded, 2000000000), "90698825")
-        self.assertEqual(len(client.totp(seed, 59)), 8)
+        self.assertEqual(client.totp(seed, 90), "02975832")
+        self.assertEqual(len(client.totp(seed, 90)), 8)
 
     def test_acvts_totp_rejects_malformed_secret_and_timestamp(self):
         seed = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
