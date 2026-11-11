@@ -4,6 +4,10 @@ Independent cryptographic qualification adapters, offline tests, and GitHub-host
 
 QSC is checked out as an **external read-only dependency**, pinned separately for each run. This repository contains no production QSC cryptographic source files and does not modify the QSC repository.
 
+## ACVTS Demo client — credential-free preparation
+
+The [ACVTS Demo client readiness guide](Source/ACVP/docs/acvts-demo-readiness.md) documents the standards-based NIST Base64/HMAC-SHA256 TOTP implementation, scoped JWT renewal, safe bounded retry and large-response handling, and the protected GitHub environment configuration. Run the [credential-free Demo client protocol regression](.github/workflows/qsc-acvp-demo-readiness.yml) manually before provisioning live credentials. The [authenticated SHA2-256 first-contact workflow](.github/workflows/qsc-acvp-demo.yml) is manual-only, requires an approved `acvts-demo` environment with three NIST credentials and explicit operator authorization, and performs only a sample session. **Neither of these new workflows has a verified execution result yet.** Demo access and offline tests are not production CAVP certification.
+
 ## Initial offline qualification campaign — completed
 
 The [QSC Offline Qualification Evidence Report](Source/ACVP/docs/offline-qualification-report.md) documents **13 of 13 verified, source-pinned GitHub Actions PASS stages**, including Windows and Linux x64, Linux ARM64 and macOS Apple Silicon, the selected scalar and accelerated compilation profiles, ECC interoperability, and FIPS 203/204/205 algorithm-family prequalification. All thirteen designated runs and their archived evidence artifacts are indexed in the report. This is **offline prequalification only**: no authenticated NIST ACVTS validation, CAVP algorithm certificate, exhaustive instruction-path coverage or FIPS 140-3 validation is claimed. GitHub evidence artifacts are configured for 14-day retention and should be preserved separately for long-term auditability.
