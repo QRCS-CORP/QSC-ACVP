@@ -212,6 +212,10 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise ValueError("ACVP redirect refused")
 
 
+class AcvpUnauthorized(ValueError):
+    """401 response from ACVTS; do not include server text or credentials."""
+
+
 class DemoTransport:
     """Mutually authenticated HTTPS transport pinned to the NIST Demo origin."""
 
@@ -236,10 +240,17 @@ class DemoTransport:
             headers["Authorization"] = "Bearer " + token
         request = urllib.request.Request(DEMO_ORIGIN + checked_path, data=data,
                                          headers=headers, method=method)
-        with self._opener.open(request, timeout=45) as response:
-            if response.status < 200 or response.status >= 300:
-                raise ValueError(f"Unexpected HTTP status {response.status}")
-            raw = response.read(16 * 1024 * 1024 + 1)
+        try:
+            with self._opener.open(request, timeout=45) as response:
+                if response.status < 200 or response.status >= 300:
+                    raise ValueError(f"Unexpected HTTP status {response.status}")
+                raw = response.read(16 * 1024 * 1024 + 1)
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            exc.close()
+            if status == 401:
+                raise AcvpUnauthorized("ACVP bearer token expired") from None
+            raise ValueError(f"ACVP request rejected with HTTP {status}") from None
         if len(raw) > 16 * 1024 * 1024:
             raise ValueError("ACVP vector payload exceeds bounded in-memory client limit")
         # NIST ACVP specifies an empty success body for POST /vectorSets/{id}/results.
@@ -252,6 +263,37 @@ class DemoTransport:
                 result[0].get("acvVersion") != "1.0" or not isinstance(result[1], dict)):
             raise ValueError("Unrecognized ACVP response envelope")
         return result
+
+
+class RefreshingTransport:
+    """Refresh expired scoped ACVTS JWTs exactly once after an explicit HTTP 401.
+
+    Does not retry timeouts, ambiguous POST failures, redirect responses, or
+    non-401 server errors. No credential material is written to diagnostics.
+    """
+
+    def __init__(self, transport, seed: str):
+        self._transport = transport
+        self._seed = seed
+        self._refreshed = {}
+
+    def request(self, method: str, path: str, token: str | None = None,
+                body: list | None = None) -> list:
+        active = self._refreshed.get(token, token) if token is not None else None
+        try:
+            return self._transport.request(method, path, active, body)
+        except AcvpUnauthorized:
+            if token is None or path == DEMO_API + "/login":
+                raise
+            fresh = self._transport.request(
+                "POST", DEMO_API + "/login", body=[
+                    {"acvVersion": "1.0"},
+                    {"password": totp(self._seed, time.time()), "accessToken": active}])
+            renewed = fresh[1].get("accessToken")
+            if not isinstance(renewed, str) or not renewed:
+                raise ValueError("ACVTS JWT renewal did not return an access token")
+            self._refreshed[token] = renewed
+            return self._transport.request(method, path, renewed, body)
 
 
 def reconcile_verdict(outcome: dict, submitted: set[str]) -> str:
@@ -290,6 +332,7 @@ def reconcile_verdict(outcome: dict, submitted: set[str]) -> str:
 def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_count: int = 8,
             poll_sleep: float = 2.0, drbg_validation: str | None = None) -> dict:
     """Perform one sample registration and process every returned vector sequentially."""
+    transport = RefreshingTransport(transport, seed)
     report = {"type": "NIST_ACVTS_DEMO_SAMPLE_NOT_CAVP_CERTIFICATE",
               "timestamp_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
               "status": "INCOMPLETE", "registration_algorithms": list(selected),
