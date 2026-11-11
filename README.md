@@ -24,6 +24,8 @@ The [Linux x64 scalar complete ECC interoperability workflow](.github/workflows/
 
 The [Linux x64 AVX2 complete ECC interoperability workflow](.github/workflows/qsc-acvp-linux-ecc-avx2.yml) is a separate manual stage requiring all 33 ECC adapter regressions with zero skips, ten independent ECC operations including ECDSA P-384, and CPU/compiled AVX2 instruction evidence. Static AVX2 code inspection does not imply dynamic coverage of every elliptic-curve arithmetic path.
 
+The [Linux ARM64 NEON post-quantum offline qualification](.github/workflows/qsc-acvp-linux-arm64-post-quantum.yml) concludes the proposed initial offline campaign. In one separately dispatched GitHub-hosted ARM64 job, it executes ML-KEM, ML-DSA and SLH-DSA checks sequentially with native vector instruction evidence, strict non-skipping and a separate fail-closed artifact. This does not constitute NIST ACVTS or FIPS validation.
+
 ## Repository layout
 
 - `Source/ACVP/` — independent CMake build, bridges, offline adapters and Python tests
