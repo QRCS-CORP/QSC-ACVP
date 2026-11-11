@@ -98,8 +98,30 @@ class Oracle:
 
 
 class DemoClientTests(unittest.TestCase):
-    def test_rfc6238_six_digit_example(self):
-        self.assertEqual(client.totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59), "287082")
+    def test_acvts_totp_rfc6238_sha256_base64_eight_digit_vectors(self):
+        """Verify independent published RFC 6238 SHA-256 8-digit vectors."""
+        seed = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
+        self.assertEqual(client.totp(seed, 59), "46119246")
+        self.assertEqual(client.totp(seed, 1111111109), "68084774")
+        self.assertEqual(client.totp(seed, 1111111111), "67062674")
+        self.assertEqual(client.totp(seed, 1234567890), "91819424")
+        self.assertEqual(client.totp(seed, 2000000000), "90698825")
+        self.assertEqual(client.totp(seed, 20000000000), "77737706")
+
+    def test_acvts_totp_preserves_leading_zeroes_and_base64_whitespace(self):
+        seed = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
+        padded = seed[:12] + " \n " + seed[12:]
+        self.assertEqual(client.totp(padded, 2000000000), "90698825")
+        self.assertEqual(len(client.totp(seed, 59)), 8)
+
+    def test_acvts_totp_rejects_malformed_secret_and_timestamp(self):
+        seed = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
+        for bad in ("", "not@base64", "AQID", "AAAA==%", "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="):
+            with self.subTest(seed=bad), self.assertRaises(ValueError):
+                client.totp(bad, 59)
+        for timestamp in (-1, float("nan"), float("inf"), 2 ** 64):
+            with self.subTest(timestamp=timestamp), self.assertRaises(ValueError):
+                client.totp(seed, timestamp)
 
     def test_registration_is_byte_aligned_and_sample_only(self):
         registration = client.registration(("SHA2-256", "SHA3-256"))
@@ -133,7 +155,7 @@ class DemoClientTests(unittest.TestCase):
 
     def test_session_execution_with_tokens_redacted_from_report(self):
         transport = FakeTransport()
-        report = client.execute(transport, Oracle(), "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        report = client.execute(transport, Oracle(), "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
                                 ("SHA2-256",), poll_count=1)
         self.assertEqual(report["status"], "PASS_DEMO_SAMPLE")
         self.assertEqual(report["test_session"], "42")
@@ -144,7 +166,7 @@ class DemoClientTests(unittest.TestCase):
 
     def test_unsupported_vector_is_never_submitted(self):
         transport = FakeTransport(test_type="LDT")
-        report = client.execute(transport, Oracle(), "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        report = client.execute(transport, Oracle(), "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
                                 ("SHA2-256",), poll_count=1)
         self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
         self.assertEqual(len(transport.calls), 3)
@@ -152,7 +174,7 @@ class DemoClientTests(unittest.TestCase):
 
     def test_demo_failure_verdict_is_not_promoted_to_pass(self):
         transport = FakeTransport(passes=False)
-        report = client.execute(transport, Oracle(), "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        report = client.execute(transport, Oracle(), "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
                                 ("SHA2-256",), poll_count=1)
         self.assertEqual(report["status"], "FAIL_DEMO_VERDICT")
 
@@ -165,7 +187,7 @@ class DemoClientTests(unittest.TestCase):
                 return super().request(method, path, token, body)
 
         result = client.execute(PartialTransport(), Oracle(),
-                                "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", ("SHA2-256",), poll_count=1)
+                                "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=", ("SHA2-256",), poll_count=1)
         self.assertEqual(result["status"], "FAIL_DEMO_VERDICT")
         self.assertFalse(result["server_passed"])
 
@@ -197,7 +219,7 @@ class DemoClientTests(unittest.TestCase):
 
         server = DuplicateTransport()
         with self.assertRaisesRegex(ValueError, "duplicate vector-set URL"):
-            client.execute(server, Oracle(), "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+            client.execute(server, Oracle(), "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
                            ("SHA2-256",), poll_count=1)
         self.assertFalse(any(method == "POST" and path.endswith("/results")
                              for method, path, _, _ in server.calls))
@@ -211,7 +233,7 @@ class DemoClientTests(unittest.TestCase):
                 return result
 
         server = MismatchedTransport()
-        report = client.execute(server, Oracle(), "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        report = client.execute(server, Oracle(), "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
                                 ("SHA2-256",), poll_count=1)
         self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
         self.assertFalse(any(method == "POST" and path.endswith("/results")
@@ -235,7 +257,7 @@ class DemoClientTests(unittest.TestCase):
         oracle = Oracle()
         oracle.ecc = KeyVerifier()
         server = PartialEccTransport()
-        report = client.execute(server, oracle, "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        report = client.execute(server, oracle, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
                                 ("XECDH",), poll_count=1, drbg_validation="DRBG-TEST-ID")
         self.assertEqual(report["status"], "FAIL_INCOMPLETE_ALGORITHM_COVERAGE")
         self.assertEqual(report["missing_algorithms"], [])
@@ -245,7 +267,7 @@ class DemoClientTests(unittest.TestCase):
 
     def test_sample_cannot_pass_with_missing_algorithm_vectors(self):
         server = FakeTransport()
-        report = client.execute(server, Oracle(), "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        report = client.execute(server, Oracle(), "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
                                 ("SHA2-256", "SHA3-256"), poll_count=1)
         self.assertEqual(report["status"], "FAIL_INCOMPLETE_ALGORITHM_COVERAGE")
         self.assertEqual(report["missing_algorithms"], ["SHA3-256"])
