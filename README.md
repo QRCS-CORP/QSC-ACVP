@@ -14,6 +14,10 @@ The [Linux x64 AVX2/AES-NI](.github/workflows/qsc-acvp-linux-avx2.yml), [Windows
 
 The [Linux x64 scalar ML-KEM FIPS 203 offline qualification](.github/workflows/qsc-acvp-linux-mlkem-scalar.yml) checks all three ML-KEM parameter sets with native adapter and vector-response regression tests. The [Linux x64 scalar ML-DSA FIPS 204 offline qualification](.github/workflows/qsc-acvp-linux-mldsa-scalar.yml) covers ML-DSA-44, ML-DSA-65 and ML-DSA-87 with individually invoked signing/verification and parser tests. The [Linux x64 scalar SLH-DSA FIPS 205 offline qualification](.github/workflows/qsc-acvp-linux-slhdsa-scalar.yml) is a third separate manual stage covering all six SHAKE parameter sets with individual native and parser regression tests. Complete and review one stage before launching the next. Each has its own pinned source revision and fail-closed evidence artifact. These are offline adapter tests, not NIST ACVTS validation.
 
+## Independent elliptic-curve qualification
+
+The [Linux x64 scalar complete ECC interoperability workflow](.github/workflows/qsc-acvp-linux-ecc-scalar.yml) is a separately dispatched stage. It requires all 33 native ACVP adapter regressions with no skips, including mandatory ECDSA P-384, and ten independently checked native ECC operations spanning ECDH, ECDSA, X25519/X448 and Ed25519/Ed448. Fail-closed evidence distinguishes offline interoperability from any NIST validation verdict.
+
 ## Repository layout
 
 - `Source/ACVP/` — independent CMake build, bridges, offline adapters and Python tests
