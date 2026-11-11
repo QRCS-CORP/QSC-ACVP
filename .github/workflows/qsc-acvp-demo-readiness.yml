@@ -1,0 +1,105 @@
+# Credential-free NIST ACVTS Demo client readiness regression checks.
+name: QSC ACVP Demo client protocol readiness (offline)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-sequential-qualification
+  cancel-in-progress: false
+
+jobs:
+  demo-protocol-readiness:
+    name: Credential-free ACVTS client regression verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout reviewed qualification branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify Demo protocol client and mock server
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/qsc-acvp-demo-readiness"
+          python -m unittest discover -s Source/ACVP/tests -p test_demo_client.py -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-acvp-demo-readiness/demo-client-tests.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-acvp-demo-readiness/demo-client-tests.log"
+          if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-acvp-demo-readiness/demo-client-tests.log"; then
+            echo 'FAIL: Demo client test suite is not complete' >&2
+            exit 1
+          fi
+          echo 'PASS: Demo client credential-free protocol tests'
+
+      - name: Verify credentials are absent from regression process
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "${ACVP_TOTP_SEED:-}"
+          test -z "${ACVP_DEMO_CERT_B64:-}"
+          test -z "${ACVP_DEMO_KEY_B64:-}"
+          echo 'PASS: credential-free tests did not require live ACVTS identity'
+
+      - name: Write sanitized readiness manifest
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+
+          out = Path(os.environ['RUNNER_TEMP']) / 'qsc-acvp-demo-readiness'
+          out.mkdir(parents=True, exist_ok=True)
+          log = out / 'demo-client-tests.log'
+          data = log.read_text(encoding='utf-8') if log.is_file() else ''
+          passed = ('\nOK\n' in data and 'FAILED' not in data
+                    and 'ERROR' not in data and 'skipped=' not in data)
+          report = {
+              'type': 'ACVTS_DEMO_CREDENTIAL_FREE_PROTOCOL_READINESS',
+              'timestamp_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'qualification_sha': os.environ.get('GITHUB_SHA', 'NOT_RECORDED'),
+              'nist_demo': 'NOT_CONTACTED',
+              'credentials': 'NOT_USED',
+              'status': 'OFFLINE_DEMO_PROTOCOL_PASS' if passed else 'FAIL_OR_INCOMPLETE',
+          }
+          (out / 'run-manifest.json').write_text(json.dumps(report, indent=2) + '\n',
+                                                 encoding='utf-8')
+          print('Offline Demo protocol readiness:', report['status'])
+          PY
+
+      - name: Upload sanitized readiness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-acvp-demo-protocol-readiness-offline
+          path: ${{ runner.temp }}/qsc-acvp-demo-readiness/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Enforce successful client regression evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ['RUNNER_TEMP']) / 'qsc-acvp-demo-readiness/run-manifest.json'
+          if not path.is_file() or json.loads(path.read_text(encoding='utf-8')).get('status') != 'OFFLINE_DEMO_PROTOCOL_PASS':
+              raise SystemExit('FAIL: credential-free Demo protocol evidence is incomplete')
+          print('PASS: credential-free Demo client regression evidence')
+          PY
