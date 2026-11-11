@@ -52,6 +52,7 @@ Following a reviewed Linux scalar PASS, run the separate manually dispatched [Li
 | 09 | Linux x64 scalar complete ECC interoperability | [OFFLINE_ECC_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42939152065) | Same pinned revision; P-384 passed; zero skips |
 | 10 | Linux x64 AVX2/AES-NI/BMI2 ML-KEM-512/768/1024 | [OFFLINE_MLKEM_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42942535115) | Same pinned revision; three accelerated backends and PEXT verified |
 | 11 | Linux x64 AVX2 ML-DSA-44/65/87 and SLH-DSA SHAKE six sets | [OFFLINE_AVX2_SIGNATURES_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42945489346) | Same pinned revision; 15 tests passed with zero skipped steps |
+| 12 | Linux x64 AVX2 complete ECC interoperability | Not executed | All 33 regressions, ten native algorithms, P-384 and ISA evidence required |
 
 These are preliminary offline self-consistency and interoperability checks. They are not ACVTS server-generated verdicts, do not certify QSC, and do not establish complete operating-environment or dynamic branch coverage.
 
@@ -91,3 +92,8 @@ Run 10 initial attempt ([GitHub run 42940735875](https://github.com/QRCS-CORP/QS
 ## Next independent signature-family profile (Run 11)
 
 After reviewing Run 10, manually dispatch [Linux x64 AVX2 ML-DSA/SLH-DSA offline qualification](../../../.github/workflows/qsc-acvp-linux-pq-signatures-avx2.yml). This single independent GitHub workflow executes ML-DSA FIPS 204 and SLH-DSA FIPS 205 tests in sequence to conserve hosted-runner resources. It checks the pinned QSC source, AVX2/BMI2 CPU capabilities, isolated AVX2 compiler macros, the three parameter-specific ML-DSA AVX2 backend symbols, all six SLH-DSA SHAKE deterministic-signing API symbols, and native AVX2 instruction presence. It then invokes three ML-DSA parser regressions, three ML-DSA native tests, three SLH-DSA parser regressions and six SLH-DSA native tests as fifteen separate named test commands. The fail-closed manifest requires all fifteen named PASS markers and the CPU/ISA/build evidence. Compiled instruction presence is not proof of dynamic instruction-path coverage or NIST ACVTS validation. This job is manually dispatched and serialized with all other qualification workflows.
+
+
+## Next isolated AVX2 ECC qualification (Run 12)
+
+After reviewing Run 11, manually dispatch [Linux x64 AVX2 ECC offline qualification](../../../.github/workflows/qsc-acvp-linux-ecc-avx2.yml). The workflow keeps the immutable pinned QSC source and uses the isolated `avx2-aesni` GCC build of `qsc_acvp_ecc`. It requires the hosted CPU to expose AVX2, AES-NI, PCLMULQDQ, SSSE3 and SSE4.1; verifies AVX2 compiler macros and 256-bit SHA-3 vector code in the compiled ECC shared library; then executes the **complete** 33-regression ECC adapter suite with no skips and all ten independent ECC interoperability operations including ECDSA P-384. The fail-closed manifest requires all oracle results, zero skipped cases, the P-384 signer, and separate CPU/ISA/build evidence. The AVX2 instruction check is static evidence from the ECC library's SHA-3 implementation, not a claim that every elliptic-curve arithmetic routine executes AVX2 instructions. No NIST ACVTS session is performed. Run 12 independently and review its artifact before proceeding to ARM64 post-quantum qualification.
