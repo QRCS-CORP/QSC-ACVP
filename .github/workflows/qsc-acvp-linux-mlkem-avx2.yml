@@ -63,12 +63,12 @@ jobs:
           echo "QSC source commit: $sha"
           echo "Qualification commit: $(git rev-parse HEAD)"
 
-      - name: Verify AVX2, AES-NI and PCLMUL runner CPU support
+      - name: Verify AVX2, AES-NI, PCLMUL and BMI2 runner CPU support
         shell: bash
         run: |
           set -euo pipefail
           flags="$(grep -m1 '^flags[[:space:]]*:' /proc/cpuinfo)"
-          for feature in avx2 aes pclmulqdq ssse3 sse4_1; do
+          for feature in avx2 aes pclmulqdq bmi2 ssse3 sse4_1; do
             if ! grep -qw "$feature" <<< "$flags"; then
               printf 'FAIL: required x64 processor feature is missing: %s\n' "$feature" >&2
               exit 1
@@ -79,10 +79,10 @@ jobs:
           {
             printf 'CPU: '
             grep -m1 '^model name' /proc/cpuinfo || true
-            printf 'Required CPU features: avx2 aes pclmulqdq ssse3 sse4_1\n'
+            printf 'Required CPU features: avx2 aes pclmulqdq bmi2 ssse3 sse4_1\n'
             printf '%s\n' "$flags"
           } > "$evidence/cpu-features.txt"
-          echo 'PASS: required AVX2/AES-NI/PCLMUL capabilities are supported'
+          echo 'PASS: required AVX2/AES-NI/PCLMUL/BMI2 capabilities are supported'
 
       - name: Configure isolated Linux avx2-aesni compilation profile
         shell: bash
@@ -121,7 +121,7 @@ jobs:
             --target qsc_acvp_pq --parallel 2
           test -s "$RUNNER_TEMP/qsc-acvp-mlkem-avx2-aesni-build/libqsc_acvp_pq.so"
 
-      - name: Verify ML-KEM AVX2 backend symbols and vector instructions
+      - name: Verify ML-KEM AVX2/BMI2 backend symbols and vector instructions
         shell: bash
         run: |
           set -euo pipefail
@@ -145,12 +145,17 @@ jobs:
             echo 'FAIL: native ML-KEM AVX2 library lacks 256-bit vector XOR' >&2
             exit 1
           fi
+          if ! grep -Eq '[[:space:]]pext[[:space:]]+' "$RUNNER_TEMP/qsc-mlkem-avx2-disassembly.txt"; then
+            echo 'FAIL: native ML-KEM AVX2 library lacks required BMI2 PEXT instruction' >&2
+            exit 1
+          fi
           {
             echo 'ML-KEM-512 AVX2 backend symbol: PRESENT'
             echo 'ML-KEM-768 AVX2 backend symbol: PRESENT'
             echo 'ML-KEM-1024 AVX2 backend symbol: PRESENT'
             echo '256-bit AVX2 polynomial multiply vpmullw: PRESENT'
             echo '256-bit AVX2 XOR vpxor: PRESENT'
+            echo 'BMI2 PEXT bit extraction: PRESENT'
             echo 'Static instructions and symbols verify code availability, not runtime branch tracing.'
           } > "$evidence/isa-evidence.txt"
           echo 'PASS: all three native ML-KEM AVX2 backends and vector instructions compiled'
