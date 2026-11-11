@@ -216,6 +216,10 @@ class AcvpUnauthorized(ValueError):
     """401 response from ACVTS; do not include server text or credentials."""
 
 
+class AcvpTransient(ValueError):
+    """Retryable GET-only ACVTS response; server body deliberately discarded."""
+
+
 class DemoTransport:
     """Mutually authenticated HTTPS transport pinned to the NIST Demo origin."""
 
@@ -259,6 +263,8 @@ class DemoTransport:
             exc.close()
             if status == 401:
                 raise AcvpUnauthorized("ACVP bearer token expired") from None
+            if method == "GET" and status in (429, 502, 503, 504):
+                raise AcvpTransient(f"ACVP GET temporarily unavailable: HTTP {status}") from None
             raise ValueError(f"ACVP request rejected with HTTP {status}") from None
         if len(raw) > 16 * 1024 * 1024:
             raise ValueError("ACVP vector payload exceeds bounded in-memory client limit")
@@ -330,20 +336,26 @@ class RefreshingTransport:
     def request(self, method: str, path: str, token: str | None = None,
                 body: list | None = None) -> list:
         active = self._refreshed.get(token, token) if token is not None else None
-        try:
-            return self._transport.request(method, path, active, body)
-        except AcvpUnauthorized:
-            if token is None or path == DEMO_API + "/login":
-                raise
-            fresh = self._transport.request(
-                "POST", DEMO_API + "/login", body=[
-                    {"acvVersion": "1.0"},
-                    {"password": totp(self._seed, time.time()), "accessToken": active}])
-            renewed = fresh[1].get("accessToken")
-            if not isinstance(renewed, str) or not renewed:
-                raise ValueError("ACVTS JWT renewal did not return an access token")
-            self._refreshed[token] = renewed
-            return self._transport.request(method, path, renewed, body)
+        for attempt in range(3):
+            try:
+                return self._transport.request(method, path, active, body)
+            except AcvpTransient:
+                if method != "GET" or attempt == 2:
+                    raise
+                time.sleep(min(2 ** attempt, 4))
+            except AcvpUnauthorized:
+                if token is None or path == DEMO_API + "/login":
+                    raise
+                fresh = self._transport.request(
+                    "POST", DEMO_API + "/login", body=[
+                        {"acvVersion": "1.0"},
+                        {"password": totp(self._seed, time.time()), "accessToken": active}])
+                renewed = fresh[1].get("accessToken")
+                if not isinstance(renewed, str) or not renewed:
+                    raise ValueError("ACVTS JWT renewal did not return an access token")
+                self._refreshed[token] = renewed
+                return self._transport.request(method, path, renewed, body)
+        raise ValueError("ACVTS GET retry limit exceeded")
 
 
 def reconcile_verdict(outcome: dict, submitted: set[str]) -> str:
