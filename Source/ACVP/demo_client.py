@@ -92,16 +92,25 @@ ALGORITHMS = DEFAULT_ALGORITHMS + ("ECDSA", "DetECDSA", "EDDSA", "XECDH", "KAS-E
 
 
 def totp(seed: str, now: float) -> str:
-    """Compute RFC 6238 HMAC-SHA1 six-digit TOTP without exposing the secret."""
-    normalized = "".join(seed.split()).upper()
-    secret = base64.b32decode(normalized, casefold=True)
-    if len(secret) < 10:
-        raise ValueError("TOTP seed is unexpectedly short")
+    """Generate NIST ACVTS's eight-digit RFC 6238 HMAC-SHA256 TOTP.
+
+    The NIST-issued seed uses Base64 encoding. Invalid credentials and clock
+    values fail closed; neither the decoded key nor the OTP is logged.
+    """
+    if not isinstance(seed, str) or not isinstance(now, (int, float)):
+        raise ValueError("Invalid ACVTS TOTP inputs")
+    normalized = "".join(seed.split())
+    try:
+        secret = base64.b64decode(normalized, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise ValueError("Invalid Base64 ACVTS TOTP seed") from exc
+    if len(secret) < 16 or not (0 <= now < (2 ** 63)):
+        raise ValueError("Invalid ACVTS TOTP key length or timestamp")
     counter = struct.pack(">Q", int(now) // 30)
-    digest = hmac.new(secret, counter, hashlib.sha1).digest()
+    digest = hmac.new(secret, counter, hashlib.sha256).digest()
     offset = digest[-1] & 15
     value = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
-    return f"{value % 1000000:06d}"
+    return f"{value % 100000000:08d}"
 
 
 def registration(algorithms: tuple[str, ...] = SHA_ALGORITHMS,
