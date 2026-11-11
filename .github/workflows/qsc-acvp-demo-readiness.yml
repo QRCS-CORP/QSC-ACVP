@@ -27,6 +27,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Compile-check ACVP Python sources without live credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q Source/ACVP
+          echo 'PASS: ACVP Python source syntax verified'
+
       - name: Verify Demo protocol client and mock server
         shell: bash
         run: |
