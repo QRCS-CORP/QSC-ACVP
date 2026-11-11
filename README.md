@@ -16,6 +16,8 @@ The [Linux x64 scalar ML-KEM FIPS 203 offline qualification](.github/workflows/q
 
 The [Linux x64 AVX2/AES-NI ML-KEM FIPS 203 qualification](.github/workflows/qsc-acvp-linux-mlkem-avx2.yml) is a separate manual stage. It requires the native AVX2 backend symbols for all three ML-KEM parameter sets, 256-bit vector instruction evidence, and complete native/adapter tests. Compiled instruction presence does not establish dynamic branch coverage.
 
+The [Linux x64 AVX2 ML-DSA and SLH-DSA offline qualification](.github/workflows/qsc-acvp-linux-pq-signatures-avx2.yml) follows the verified AVX2 ML-KEM run. It executes fifteen named, individually checked parser and native tests sequentially in one manually dispatched job with separate CPU, ISA and test evidence. The successful completion of these offline tests does not imply NIST ACVTS validation.
+
 ## Independent elliptic-curve qualification
 
 The [Linux x64 scalar complete ECC interoperability workflow](.github/workflows/qsc-acvp-linux-ecc-scalar.yml) is a separately dispatched stage. It requires all 33 native ACVP adapter regressions with no skips, including mandatory ECDSA P-384, and ten independently checked native ECC operations spanning ECDH, ECDSA, X25519/X448 and Ed25519/Ed448. Fail-closed evidence distinguishes offline interoperability from any NIST validation verdict.
