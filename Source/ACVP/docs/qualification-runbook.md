@@ -45,7 +45,7 @@ Following a reviewed Linux scalar PASS, run the separate manually dispatched [Li
 | 02 | Linux x64 AVX2/AES-NI | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42913130713) | Same pinned revision |
 | 03 | Windows x64 MSVC AVX2 | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42914925220) | Same pinned revision |
 | 04 | Linux ARM64 NEON/AES/PMULL | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42917820582) | Same pinned revision |
-| 05 | macOS 15 Apple Silicon ARM64 | Not executed | Must use reviewed pinned revision |
+| 05 | macOS 15 Apple Silicon ARM64 | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42932360195) | Same pinned revision |
 
 These are preliminary offline self-consistency and interoperability checks. They are not ACVTS server-generated verdicts, do not certify QSC, and do not establish complete operating-environment or dynamic branch coverage.
 
