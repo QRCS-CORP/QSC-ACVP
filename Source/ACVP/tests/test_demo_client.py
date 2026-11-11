@@ -117,7 +117,7 @@ class DemoClientTests(unittest.TestCase):
 
     def test_acvts_totp_rejects_malformed_secret_and_timestamp(self):
         seed = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
-        for bad in ("", "not@base64", "AQID", "AAAA==%", "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="):
+        for bad in ("", "not@base64", "AQID", "AAAA==%"):
             with self.subTest(seed=bad), self.assertRaises(ValueError):
                 client.totp(bad, 59)
         for timestamp in (-1, float("nan"), float("inf"), 2 ** 64):
