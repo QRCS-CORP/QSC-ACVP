@@ -219,9 +219,18 @@ class AcvpUnauthorized(ValueError):
 class DemoTransport:
     """Mutually authenticated HTTPS transport pinned to the NIST Demo origin."""
 
-    def __init__(self, certificate: Path, private_key: Path):
+    def __init__(self, certificate: Path, private_key: Path,
+                 large_origin: str | None = None):
         if not certificate.is_file() or not private_key.is_file():
             raise ValueError("NIST Demo certificate or private key is missing")
+        self._large_origin = None
+        if large_origin is not None:
+            parsed = urllib.parse.urlsplit(large_origin)
+            if (parsed.scheme != "https" or not parsed.hostname or
+                    parsed.username or parsed.password or parsed.path not in ("", "/") or
+                    parsed.query or parsed.fragment):
+                raise ValueError("Invalid explicitly authorized ACVP large-submission origin")
+            self._large_origin = f"https://{parsed.netloc}"
         context = ssl.create_default_context()
         context.load_cert_chain(str(certificate), str(private_key))
         self._opener = urllib.request.build_opener(
@@ -264,6 +273,41 @@ class DemoTransport:
             raise ValueError("Unrecognized ACVP response envelope")
         return result
 
+    def upload_large(self, url: str, token: str, body: list) -> None:
+        """Upload once to a server-granted, explicitly authorized HTTPS origin.
+
+        No retry is permitted because a large-submission URL may be single-use.
+        Only the authenticated Demo host or a separately allowlisted origin is
+        accepted; redirects and credential-bearing URLs are rejected.
+        """
+        if not isinstance(url, str) or not isinstance(token, str) or not token:
+            raise ValueError("Invalid large submission grant")
+        parsed = urllib.parse.urlsplit(url)
+        origin = f"https://{parsed.netloc}"
+        if (parsed.scheme != "https" or not parsed.hostname or parsed.username or
+                parsed.password or parsed.fragment or origin not in
+                (DEMO_ORIGIN, self._large_origin)):
+            raise ValueError("Unapproved ACVP large-submission host")
+        data = json.dumps(body).encode("utf-8")
+        if not data or len(data) > 64 * 1024 * 1024:
+            raise ValueError("Large submission exceeds the bounded client limit")
+        req = urllib.request.Request(
+            url, data=data, method="POST",
+            headers={"Content-Type": "application/json",
+                     "Accept": "application/json",
+                     "Authorization": "Bearer " + token})
+        try:
+            with self._opener.open(req, timeout=90) as response:
+                if response.status < 200 or response.status >= 300:
+                    raise ValueError(f"ACVP large submission HTTP {response.status}")
+                raw = response.read(16 * 1024 + 1)
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            exc.close()
+            raise ValueError(f"ACVP large submission rejected with HTTP {status}") from None
+        if len(raw) > 16 * 1024:
+            raise ValueError("Unexpected oversized large-submission acknowledgment")
+
 
 class RefreshingTransport:
     """Refresh expired scoped ACVTS JWTs exactly once after an explicit HTTP 401.
@@ -276,6 +320,10 @@ class RefreshingTransport:
         self._transport = transport
         self._seed = seed
         self._refreshed = {}
+
+    def upload_large(self, url: str, token: str, body: list) -> None:
+        """Use one-time granted large submission without automatic network retry."""
+        self._transport.upload_large(url, self._refreshed.get(token, token), body)
 
     def request(self, method: str, path: str, token: str | None = None,
                 body: list | None = None) -> list:
@@ -344,7 +392,8 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
         raise ValueError("Login response did not include an access token")
     large_required = login[1].get("largeEndpointRequired", False)
     standard_limit = login[1].get("sizeConstraint", -1)
-    if type(large_required) is not bool or type(standard_limit) is not int:
+    if (type(large_required) is not bool or type(standard_limit) is not int or
+            (large_required and standard_limit < 0)):
         raise ValueError("Unexpected ACVP submission size policy")
     capability_envelope = registration(selected, drbg_validation)
     required_ecc_modes = {(item["algorithm"], item.get("mode"))
@@ -405,9 +454,17 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
             if vector_result["algorithm"] not in selected:
                 raise ValueError("Unregistered or unsupported algorithm in vector set")
             response = build_response(request, qsc)
-            if large_required and standard_limit >= 0 and len(json.dumps(response).encode("utf-8")) > standard_limit:
-                raise ValueError("Vector response requires unsupported large-submission endpoint")
-            transport.request("POST", validated + "/results", session_token, response)
+            response_size = len(json.dumps(response).encode("utf-8"))
+            use_large = large_required and standard_limit >= 0 and response_size > standard_limit
+            if use_large:
+                grant = transport.request("POST", DEMO_API + "/large", session_token, [
+                    {"acvVersion": "1.0"},
+                    {"submissionSize": response_size, "vectorSetUrl": validated}])[1]
+                upload_token = grant.get("accessToken", session_token)
+                upload_url = grant.get("url")
+                transport.upload_large(upload_url, upload_token, response)
+            else:
+                transport.request("POST", validated + "/results", session_token, response)
             vector_result["status"] = "SUBMITTED"
         except (ValueError, KeyError, TypeError, urllib.error.URLError, OSError) as exc:
             vector_result["status"] = "FAIL"
@@ -455,6 +512,7 @@ def main() -> int:
     parser.add_argument("--cert", type=Path, required=True)
     parser.add_argument("--key", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--large-origin", help="Explicitly approved HTTPS origin for delegated large submissions")
     parser.add_argument("--algorithms", nargs="+", choices=ALGORITHMS, default=list(DEFAULT_ALGORITHMS))
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
@@ -487,7 +545,7 @@ def main() -> int:
         parser.error("ECC live registration requires independently qualified RNG integration")
     report = {"type": "NIST_ACVTS_DEMO_SAMPLE_NOT_CAVP_CERTIFICATE", "status": "ERROR"}
     try:
-        transport = DemoTransport(args.cert, args.key)
+        transport = DemoTransport(args.cert, args.key, args.large_origin)
         qsc = QSC(args.library)
         qsc.kdf = QscKdf(args.library)
         if args.aes_library is not None:
