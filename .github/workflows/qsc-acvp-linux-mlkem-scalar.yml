@@ -59,7 +59,7 @@ jobs:
             echo 'FAIL: QSC checkout differs from requested immutable revision' >&2
             exit 1
           fi
-          printf 'QSC_DEP }}ENCY_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
+          printf 'QSC_DEPENDENCY_SHA=%s\n' "$sha" >> "$GITHUB_ENV"
           echo "QSC source commit: $sha"
           echo "Qualification commit: $(git rev-parse HEAD)"
 
@@ -81,7 +81,7 @@ jobs:
           evidence="$RUNNER_TEMP/qsc-acvp-mlkem-scalar-evidence"
           mkdir -p "$evidence"
           {
-            printf 'QSC source commit: %s\n' "$QSC_DEP }}ENCY_SHA"
+            printf 'QSC source commit: %s\n' "$QSC_DEPENDENCY_SHA"
             printf 'Qualification commit: %s\n' "$GITHUB_SHA"
             printf 'Operating system: %s\n' "$(uname -s)"
             printf 'Architecture: %s\n' "$(uname -m)"
@@ -157,7 +157,7 @@ jobs:
           record = {
               'type': 'QSC_LINUX_SCALAR_MLKEM_FIPS203_OFFLINE_NOT_ACVTS',
               'timestamp_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-              'qsc_git_sha': os.environ.get('QSC_DEP }}ENCY_SHA', 'NOT_RECORDED'),
+              'qsc_git_sha': os.environ.get('QSC_DEPENDENCY_SHA', 'NOT_RECORDED'),
               'qualification_git_sha': os.environ.get('GITHUB_SHA', 'NOT_RECORDED'),
               'runner': 'ubuntu-24.04',
               'architecture': 'x86_64',
