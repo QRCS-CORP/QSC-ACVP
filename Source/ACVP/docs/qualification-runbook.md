@@ -47,7 +47,8 @@ Following a reviewed Linux scalar PASS, run the separate manually dispatched [Li
 | 04 | Linux ARM64 NEON/AES/PMULL | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42917820582) | Same pinned revision |
 | 05 | macOS 15 Apple Silicon ARM64 | [OFFLINE_SMOKE_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42932360195) | Same pinned revision |
 | 06 | Linux x64 scalar ML-KEM-512/768/1024 | [OFFLINE_MLKEM_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42933335977) | Same pinned revision |
-| 07 | Linux x64 scalar ML-DSA-44/65/87 | Not executed | Must use reviewed pinned revision |
+| 07 | Linux x64 scalar ML-DSA-44/65/87 | [OFFLINE_MLDSA_PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42936426475) | Same pinned revision |
+| 08 | Linux x64 scalar SLH-DSA SHAKE-128s/f, 192s/f, 256s/f | Not executed | Must use reviewed pinned revision |
 
 These are preliminary offline self-consistency and interoperability checks. They are not ACVTS server-generated verdicts, do not certify QSC, and do not establish complete operating-environment or dynamic branch coverage.
 
@@ -65,3 +66,8 @@ After reviewing the five SHA/AES platform bootstraps, manually dispatch [Linux x
 ## Next signature family: ML-DSA (FIPS 204)
 
 After reviewing the standalone ML-KEM evidence, manually dispatch [Linux scalar ML-DSA offline qualification](../../../.github/workflows/qsc-acvp-linux-mldsa-scalar.yml). It reuses the pinned, read-only QSC source and the already-defined scalar post-quantum build, while running three individually invoked native signature tests in sequence: ML-DSA-44, ML-DSA-65 and ML-DSA-87. Three separate fail-closed parser regressions cover seeded key generation and unsupported randomized and internal-mu signing modes. Each native test checks signing, signature verification, tampering rejection and supported ACVP-style vector responses. All results are recorded as a distinct sanitized artifact and the run fails on missing, skipped or failed checks. This stage is an offline adapter prequalification only, not a NIST ACVTS verdict or full FIPS 204 validation. SLH-DSA remains a separate future stage.
+
+
+## Next signature family: SLH-DSA (FIPS 205)
+
+After independently reviewing the ML-DSA results, manually dispatch [Linux x64 scalar SLH-DSA offline qualification](../../../.github/workflows/qsc-acvp-linux-slhdsa-scalar.yml). This is a separate GitHub-hosted workflow on `ubuntu-24.04` using the pinned QSC source and isolated GCC scalar build. Six individually and sequentially invoked native tests exercise the SHAKE-128s, SHAKE-128f, SHAKE-192s, SHAKE-192f, SHAKE-256s and SHAKE-256f parameter sets. Three separately invoked parser regressions verify supported seeded key generation and fail-closed rejection of unsupported nondeterministic signing and prehash modes. Native checks include key generation, deterministic signing, valid signature acceptance, tampered or truncated signature rejection and ACVP-style vector replay. A separate sanitized artifact records named PASS/FAIL evidence and prevents partial runs from being counted as a pass. The job has a 40-minute limit; avoid concurrent qualification workflows. This is offline adapter prequalification, not an authenticated NIST ACVTS verdict or a complete FIPS 205 validation.
