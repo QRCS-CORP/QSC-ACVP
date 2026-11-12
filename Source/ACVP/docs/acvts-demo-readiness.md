@@ -120,7 +120,47 @@ qualification commit `30af6129bc13cdab8634c8b5013a2924ca9247fe`,
 `status: OFFLINE_DEMO_PROTOCOL_PASS`.
 
 This is a **verified offline protocol-readiness result**, not a NIST server
-verdict. The protected authenticated workflow has not been executed.
+verdict. It was completed before the first authenticated NIST Demo session.
+
+## First authenticated NIST Demo contact — November 12, 2026
+
+The initial [authenticated SHA2-256 sample run](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43319257508)
+used the pinned QSC source revision
+`43c8aa2afe9d38c3ddf9bac0107196545981ac28` and qualification revision
+`f9ceb82f0a5459e6e3cf3248355fb88285aa8ee8`. The certificate/private-key
+pair passed validation, NIST Demo authentication succeeded, and the server
+registered **sample test session 787623**, vector set **4148699** for
+**SHA2-256**. The client submitted the generated response successfully.
+Its final report was `INCOMPLETE` because the eight short, two-second
+verdict polls concluded before NIST returned a conclusive disposition.
+
+The original sanitized evidence artifact is
+`qsc-acvp-real-nist-demo-sha2-256-sample`, artifact ID `13990066496`.
+The client did not receive a passing or failing NIST test verdict. No
+certificate or formal algorithm validation is claimed.
+
+NIST documentation explains that a received vector set may remain
+`incomplete` during server processing, sometimes for several minutes.
+The default verdict polling has been changed to **20 checks at 30-second
+intervals**, preserving a sanitized `PENDING_SERVER` state if the bounded
+window expires. This change applies to future sessions; it was **not**
+tested during Run 43319257508.
+
+A separate, manually dispatched
+[read-only recovery workflow](../../../.github/workflows/qsc-acvp-demo-verdict-only.yml)
+can check the **existing** session and vector-set status. It performs one
+fresh login and one GET
+`/acvp/v1/testSessions/787623/results`, and does **not** create or modify
+test sessions or upload responses. The accompanying
+`test_verdict_client.py` mock tests must pass in the credential-free
+workflow before the recovery workflow is used.
+
+**Authorization limitation:** the original session-scoped JWT was not
+retained. NIST may reject a fresh login JWT for access to the earlier
+session. Such a result is recorded as
+`SESSION_TOKEN_REQUIRED_OR_ACCESS_RESTRICTED`; it is not interpreted as
+an algorithm failure. If that happens, stop and review the server's
+session-token recovery procedures rather than repeatedly resubmitting data.
 
 ## Post-credential sequence
 
@@ -154,5 +194,5 @@ verdict. The protected authenticated workflow has not been executed.
 
 - Original offline campaign: **13 designated stages verified PASS**.
 - Credential-free Demo-client regression workflow: **[25/25 PASS, verified](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42960574208)**; evidence manifest `OFFLINE_DEMO_PROTOCOL_PASS`.
-- Authenticated NIST Demo sample: **not executed; NIST credentials required**.
+- Authenticated NIST Demo first-contact: **[Run 43319257508](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43319257508)** created session 787623, submitted SHA2-256 vector set 4148699; verdict **not yet confirmed** after short polling.
 - NIST production algorithm certification: **not executed**.
