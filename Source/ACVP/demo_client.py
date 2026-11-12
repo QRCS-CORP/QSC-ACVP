@@ -395,8 +395,8 @@ def reconcile_verdict(outcome: dict, submitted: set[str]) -> str:
     return "PENDING"
 
 
-def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_count: int = 8,
-            poll_sleep: float = 2.0, drbg_validation: str | None = None) -> dict:
+def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_count: int = 20,
+            poll_sleep: float = 30.0, drbg_validation: str | None = None) -> dict:
     """Perform one sample registration and process every returned vector sequentially."""
     transport = RefreshingTransport(transport, seed)
     report = {"type": "NIST_ACVTS_DEMO_SAMPLE_NOT_CAVP_CERTIFICATE",
@@ -515,6 +515,15 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
         if verdict == "FAIL":
             report["status"] = "FAIL_DEMO_VERDICT"
             break
+        report["status"] = "PENDING_SERVER"
+        report["verdict_poll_count"] = attempt + 1
+        report["vector_verdict_statuses"] = sorted({
+            entry["status"] for entry in outcome.get("results", [])
+            if isinstance(entry, dict) and isinstance(entry.get("status"), str)
+            and entry["status"] in (
+                "passed", "failed", "fail", "error", "expired",
+                "incomplete", "missing", "unreceived", "processing", "pending")
+        })
         if attempt + 1 < poll_count:
             time.sleep(poll_sleep)
     return report
