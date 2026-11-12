@@ -508,14 +508,6 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
     for attempt in range(poll_count):
         outcome = transport.request("GET", session_path + "/results", session_token)[1]
         verdict = reconcile_verdict(outcome, expected_paths)
-        if verdict == "PASS":
-            report["server_passed"] = True
-            report["status"] = "PASS_DEMO_SAMPLE"
-            break
-        if verdict == "FAIL":
-            report["status"] = "FAIL_DEMO_VERDICT"
-            break
-        report["status"] = "PENDING_SERVER"
         report["verdict_poll_count"] = attempt + 1
         report["vector_verdict_statuses"] = sorted({
             entry["status"] for entry in outcome.get("results", [])
@@ -524,6 +516,14 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                 "passed", "failed", "fail", "error", "expired",
                 "incomplete", "missing", "unreceived", "processing", "pending")
         })
+        if verdict == "PASS":
+            report["server_passed"] = True
+            report["status"] = "PASS_DEMO_SAMPLE"
+            break
+        if verdict == "FAIL":
+            report["status"] = "FAIL_DEMO_VERDICT"
+            break
+        report["status"] = "PENDING_SERVER"
         if attempt + 1 < poll_count:
             time.sleep(poll_sleep)
     return report
