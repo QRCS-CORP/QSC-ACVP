@@ -1,0 +1,97 @@
+# Recovery check for existing NIST Demo SHA2-256 sample; no test registration.
+name: QSC ACVTS Demo check existing session 787623 (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      approve_nist_network_session:
+        description: 'I authorize a read-only NIST Demo verdict query for existing session 787623'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-nist-demo-exclusive
+  cancel-in-progress: false
+
+jobs:
+  existing-session-verdict:
+    name: Read existing NIST Demo session verdict without resubmission
+    if: github.repository == 'QRCS-CORP/QSC-ACVP'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: acvts-demo
+
+    steps:
+      - name: Require explicit authorization for read-only existing-session check
+        shell: bash
+        env:
+          REQUEST_APPROVAL: ${{ inputs.approve_nist_network_session }}
+          DEMO_ENABLED: ${{ vars.ACVTS_DEMO_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$REQUEST_APPROVAL" = true || { echo 'FAIL: no explicit operator authorization'; exit 1; }
+          test "$DEMO_ENABLED" = true || { echo 'FAIL: protected NIST Demo environment disabled'; exit 1; }
+          echo 'PASS: existing-session-only authorization established'
+
+      - name: Checkout reviewed qualification client
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Materialize approved NIST credentials for read-only session query
+        shell: bash
+        env:
+          NIST_CERT_B64: ${{ secrets.ACVTS_DEMO_CERT_B64 }}
+          NIST_KEY_B64: ${{ secrets.ACVTS_DEMO_KEY_B64 }}
+          NIST_TOTP_SEED_B64: ${{ secrets.ACVTS_DEMO_TOTP_B64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          test -n "$NIST_CERT_B64" || { echo 'FAIL: missing certificate secret'; exit 1; }
+          test -n "$NIST_KEY_B64" || { echo 'FAIL: missing private-key secret'; exit 1; }
+          test -n "$NIST_TOTP_SEED_B64" || { echo 'FAIL: missing TOTP seed secret'; exit 1; }
+          printf '%s' "$NIST_CERT_B64" | base64 --decode > "$RUNNER_TEMP/acvts-demo-cert.pem"
+          printf '%s' "$NIST_KEY_B64" | base64 --decode > "$RUNNER_TEMP/acvts-demo-key.pem"
+          openssl x509 -noout -in "$RUNNER_TEMP/acvts-demo-cert.pem" >/dev/null
+          openssl pkey -noout -in "$RUNNER_TEMP/acvts-demo-key.pem" >/dev/null
+          echo 'PASS: protected NIST client credential files loaded'
+
+      - name: Read original session 787623 verdict without creating a new session
+        shell: bash
+        env:
+          ACVP_TOTP_SEED: ${{ secrets.ACVTS_DEMO_TOTP_B64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          python Source/ACVP/verdict_client.py \
+            --cert "$RUNNER_TEMP/acvts-demo-cert.pem" \
+            --key "$RUNNER_TEMP/acvts-demo-key.pem" \
+            --session-id 787623 \
+            --vector-id 4148699 \
+            --output "$RUNNER_TEMP/qsc-acvts-demo-existing-verdict"
+
+      - name: Delete ephemeral NIST certificate and private key
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -f "$RUNNER_TEMP/acvts-demo-cert.pem" "$RUNNER_TEMP/acvts-demo-key.pem"
+
+      - name: Archive sanitized read-only verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-acvp-nist-demo-existing-session-787623-verdict
+          path: ${{ runner.temp }}/qsc-acvts-demo-existing-verdict/existing-session-verdict.json
+          if-no-files-found: warn
+          retention-days: 7
