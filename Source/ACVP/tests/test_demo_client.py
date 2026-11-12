@@ -348,6 +348,31 @@ class DemoClientTests(unittest.TestCase):
         self.assertEqual(len(transport.calls), 3)
         self.assertNotIn("private-session-token", str(report))
 
+    def test_final_verdict_replaces_stale_incomplete_poll_status(self):
+        """Evidence must reflect the final server verdict, not an earlier poll."""
+        class PendingThenPassing(FakeTransport):
+            def __init__(self):
+                super().__init__()
+                self.polls = 0
+
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.session + "/results":
+                    self.polls += 1
+                    if self.polls == 1:
+                        return [{"acvVersion": "1.0"}, {"passed": False,
+                                "results": [{"vectorSetUrl": self.vector,
+                                             "status": "incomplete"}]}]
+                return super().request(method, path, token, body)
+
+        transport = PendingThenPassing()
+        report = client.execute(transport, Oracle(),
+                                "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                                ("SHA2-256",), poll_count=2, poll_sleep=0)
+        self.assertEqual(report["status"], "PASS_DEMO_SAMPLE")
+        self.assertTrue(report["server_passed"])
+        self.assertEqual(report["verdict_poll_count"], 2)
+        self.assertEqual(report["vector_verdict_statuses"], ["passed"])
+
     def test_demo_failure_verdict_is_not_promoted_to_pass(self):
         transport = FakeTransport(passes=False)
         report = client.execute(transport, Oracle(), "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
