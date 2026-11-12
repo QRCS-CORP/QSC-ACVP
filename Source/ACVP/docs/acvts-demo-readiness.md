@@ -162,6 +162,35 @@ session. Such a result is recorded as
 an algorithm failure. If that happens, stop and review the server's
 session-token recovery procedures rather than repeatedly resubmitting data.
 
+## Confirmed first authenticated Demo PASS — November 12, 2026
+
+The subsequent [NIST Demo SHA2-256 sample run 43321340135](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43321340135)
+completed successfully using qualification revision
+`7a19748e3965eec747aff1913ce756fbd6db00c6` and the unchanged
+production QSC revision
+`43c8aa2afe9d38c3ddf9bac0107196545981ac28`.
+
+The actual NIST Demo response for **sample session 787624**, vector set
+**4148700**, was reconciled against the submitted vector set and reported
+`PASS_DEMO_SAMPLE` with `server_passed: true`. The live GitHub job's
+authenticated execution step returned success, and the sanitized
+`demo-results.json` was downloaded from evidence artifact **13990472131**.
+The artifact passed ZIP CRC verification; its SHA-256 archive digest is
+`0c2e37845184d13a1a52d40a865e6d866f723419595ff6b54bdbc0cece70c6e5`.
+
+The archived JSON has a benign evidence-field inconsistency:
+`vector_verdict_statuses: ["incomplete"]` reflects an earlier polling
+response, although the final reconciled response passed. This is not a
+failed NIST vector verdict. The reporting client has since been adjusted
+to capture statuses from the **last** poll and a deterministic regression
+has been added. **That new regression has not yet been executed.** The
+original run's evidence is retained unchanged for provenance.
+
+The earlier sample session **787623** remains without a recorded final
+verdict; its status must not be inferred from the independent PASS for
+787624. Neither Demo sample implies a CAVP algorithm certificate or
+FIPS 140-3 validation.
+
 ## Post-credential sequence
 
 1. Complete and independently review the credential-free workflow.
@@ -194,5 +223,5 @@ session-token recovery procedures rather than repeatedly resubmitting data.
 
 - Original offline campaign: **13 designated stages verified PASS**.
 - Credential-free Demo-client regression workflow: **[25/25 PASS, verified](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42960574208)**; evidence manifest `OFFLINE_DEMO_PROTOCOL_PASS`.
-- Authenticated NIST Demo first-contact: **[Run 43319257508](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43319257508)** created session 787623, submitted SHA2-256 vector set 4148699; verdict **not yet confirmed** after short polling.
+- Authenticated NIST Demo SHA2-256: **[Run 43321340135 — PASS_DEMO_SAMPLE](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43321340135)** for session 787624, vector 4148700, with actual NIST server verdict; previous session 787623 remains **unconfirmed**.
 - NIST production algorithm certification: **not executed**.
