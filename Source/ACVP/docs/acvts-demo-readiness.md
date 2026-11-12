@@ -183,13 +183,36 @@ The archived JSON has a benign evidence-field inconsistency:
 response, although the final reconciled response passed. This is not a
 failed NIST vector verdict. The reporting client has since been adjusted
 to capture statuses from the **last** poll and a deterministic regression
-has been added. **That new regression has not yet been executed.** The
-original run's evidence is retained unchanged for provenance.
+has been added. The complete updated **32-test credential-free suite
+passed** in [run 43327458656](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43327458656)
+(26 Demo-client and six recovery tests). The original run's evidence
+is retained unchanged for provenance.
 
 The earlier sample session **787623** remains without a recorded final
 verdict; its status must not be inferred from the independent PASS for
 787624. Neither Demo sample implies a CAVP algorithm certificate or
 FIPS 140-3 validation.
+
+## Second confirmed authenticated Demo PASS — SHA2-384
+
+The [NIST Demo SHA2-384 sample run 43328100214](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43328100214)
+executed the isolated SHA2-384 sample with qualification revision
+`feb320f936aa84aa4359b9c938efefa401d781f5`, using the unchanged
+production QSC revision `43c8aa2afe9d38c3ddf9bac0107196545981ac28`.
+
+The pinned QSC SHA2-384 known-answer preflight passed, a single
+authenticated NIST Demo session **787625** was created, and vector set
+**4148701** was submitted. NIST's verdict was
+`PASS_DEMO_SAMPLE` with `server_passed: true`; the final
+`vector_verdict_statuses` was `["passed"]` after three verdict polls.
+The sanitized evidence archive is artifact **13992789114**, with SHA-256:
+`46445e6e78204e48404edf5ec94e02680c8ecc2fb2e1f9c28ad7124df8c07c5c`.
+The ZIP CRC was verified.
+
+The subsequent [SHA2-512 sample workflow](../../../.github/workflows/qsc-acvp-demo-sha2-512.yml)
+is prepared with the same protected environment, pinned dependency and
+exclusive NIST session concurrency group. It has **not been executed**.
+NIST Demo success is distinct from formal CAVP algorithm validation.
 
 ## Post-credential sequence
 
@@ -222,6 +245,8 @@ FIPS 140-3 validation.
 ## Qualification status
 
 - Original offline campaign: **13 designated stages verified PASS**.
-- Credential-free Demo-client regression workflow: **[25/25 PASS, verified](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/42960574208)**; evidence manifest `OFFLINE_DEMO_PROTOCOL_PASS`.
+- Credential-free Demo-client regression workflow: **[32/32 PASS, verified](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43327458656)** (26 Demo-client and six recovery tests); evidence manifest `OFFLINE_DEMO_PROTOCOL_PASS`.
 - Authenticated NIST Demo SHA2-256: **[Run 43321340135 — PASS_DEMO_SAMPLE](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43321340135)** for session 787624, vector 4148700, with actual NIST server verdict; previous session 787623 remains **unconfirmed**.
+- Authenticated NIST Demo SHA2-384: **[Run 43328100214 — PASS_DEMO_SAMPLE](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43328100214)** for session 787625, vector 4148701; sanitized evidence verified.
+- Authenticated NIST Demo SHA2-512: **workflow prepared; not executed**.
 - NIST production algorithm certification: **not executed**.
