@@ -12,6 +12,9 @@ on:
       - 'Source/ACVP/kda_hkdf_client.py'
       - 'Source/ACVP/tests/test_kda_hkdf_vectors.py'
       - 'Source/ACVP/tests/test_kda_hcg_native.py'
+      - 'Source/ACVP/kda_session_inspect.py'
+      - 'Source/ACVP/tests/test_kda_session_inspect.py'
+      - '.github/workflows/qsc-acvp-kda-readonly-787983.yml'
       - '.github/workflows/qsc-acvp-hcg-kda-offline.yml'
       - '.github/workflows/qsc-acvp-demo-hcg-kda-hkdf.yml'
   workflow_dispatch:
@@ -46,6 +49,8 @@ jobs:
           set -euo pipefail
           ruby -e 'require "yaml"; YAML.load_file(ARGV.fetch(0)); puts "PASS: KDA-HKDF NIST workflow YAML syntax"' \
             .github/workflows/qsc-acvp-demo-hcg-kda-hkdf.yml
+          ruby -e 'require "yaml"; YAML.load_file(ARGV.fetch(0)); puts "PASS: read-only inspection workflow YAML syntax"' \
+            .github/workflows/qsc-acvp-kda-readonly-787983.yml
 
       - name: Compile native HCG and HKDF libraries
         shell: bash
@@ -77,13 +82,13 @@ jobs:
               test_kda_hkdf_vectors.KdaHkdfSchemaTests \
               test_kda_hcg_native.KdaHcgNativeTests -v \
             2>&1 | tee "$RUNNER_TEMP/qsc-hcg-kda-native-tests.log"
-          grep -Eq '^Ran 33 tests in' "$RUNNER_TEMP/qsc-hcg-kda-native-tests.log"
+          grep -Eq '^Ran 39 tests in' "$RUNNER_TEMP/qsc-hcg-kda-native-tests.log"
           grep -Eq '^OK$' "$RUNNER_TEMP/qsc-hcg-kda-native-tests.log"
           if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-hcg-kda-native-tests.log"; then
             echo 'FAIL: HCG and native KDA-HKDF regression suite' >&2
             exit 1
           fi
-          echo 'PASS: 33 HCG and native KDA-HKDF tests'
+          echo 'PASS: 39 HCG and native KDA-HKDF tests'
       - name: Verify Demo and ECC adapter compatibility
         shell: bash
         run: |
@@ -101,6 +106,21 @@ jobs:
             exit 1
           fi
           echo 'PASS: 55 Demo and ECC adapter tests'
+      - name: Test existing-session read-only inspection
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
+            python -m unittest test_kda_session_inspect.KdaSessionInspectTests -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-kda-readonly-offline-tests.log"
+          grep -Eq '^Ran 4 tests in' "$RUNNER_TEMP/qsc-kda-readonly-offline-tests.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-kda-readonly-offline-tests.log"
+          if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-kda-readonly-offline-tests.log"; then
+            echo 'FAIL: read-only session diagnostic regression' >&2
+            exit 1
+          fi
+          echo 'PASS: 4 bounded read-only KDA inspection tests'
+
       - name: Upload nonsecret offline evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -109,5 +129,6 @@ jobs:
           path: |
             ${{ runner.temp }}/qsc-hcg-kda-native-tests.log
             ${{ runner.temp }}/qsc-hcg-kda-adapter-tests.log
+            ${{ runner.temp }}/qsc-kda-readonly-offline-tests.log
           if-no-files-found: warn
           retention-days: 14

@@ -60,7 +60,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kda_hkdf_client import registration, response, SELECTION
+from kda_hkdf_client import registration, response, SELECTION, KdaHexError
 from kdf_client import QscKdf
 from local_client import build_response
 from demo_client import registration as demo_registration, execute
@@ -274,6 +274,76 @@ class KdaHkdfSchemaTests(unittest.TestCase):
                          "UNCLASSIFIED_VALUE_ERROR")
         self.assertNotIn("sensitive-native-kda-internal-data", str(report))
         self.assertNotIn("private-session-token", str(report))
+
+    def test_hex_z_missing_has_fixed_field_reason(self):
+        """Missing shared-secret input must identify Z, not expose vector data."""
+        request = vectors()
+        del request[1]["testGroups"][0]["tests"][0]["kdfParameter"]["z"]
+        with self.assertRaises(KdaHexError) as ctx:
+            response(request, object())
+        self.assertEqual((ctx.exception.field, ctx.exception.issue), ("Z", "MISSING"))
+
+    def test_hex_salt_encoding_has_fixed_field_reason(self):
+        """A nonhex salt must be classified separately from the shared secret."""
+        request = vectors()
+        request[1]["testGroups"][0]["tests"][0]["kdfParameter"]["salt"] = "ZZ"
+        with self.assertRaises(KdaHexError) as ctx:
+            response(request, object())
+        self.assertEqual((ctx.exception.field, ctx.exception.issue), ("SALT", "ENCODING"))
+
+    def test_hex_party_id_wrong_type_has_fixed_field_reason(self):
+        """Party U identifiers must be hex strings."""
+        request = vectors()
+        request[1]["testGroups"][0]["tests"][0]["fixedInfoPartyU"]["partyId"] = 123
+        with self.assertRaises(KdaHexError) as ctx:
+            response(request, object())
+        self.assertEqual((ctx.exception.field, ctx.exception.issue), ("U_PARTY_ID", "TYPE"))
+
+    def test_hex_ephemeral_odd_length_has_fixed_field_reason(self):
+        """Optional party V ephemeral data is classified without logging its value."""
+        request = vectors()
+        request[1]["testGroups"][0]["tests"][0]["fixedInfoPartyV"]["ephemeralData"] = "F0F"
+        with self.assertRaises(KdaHexError) as ctx:
+            response(request, object())
+        self.assertEqual((ctx.exception.field, ctx.exception.issue),
+                         ("V_EPHEMERAL", "ODD_LENGTH"))
+
+    def test_hex_val_dkm_missing_has_fixed_field_reason(self):
+        """Missing VAL expected DKM must not be treated as a native KDF failure."""
+        request = vectors(test_type="VAL")
+        del request[1]["testGroups"][0]["tests"][0]["dkm"]
+        reference = type("Reference", (), {"hkdf": staticmethod(oracle)})()
+        with self.assertRaises(KdaHexError) as ctx:
+            response(request, reference)
+        self.assertEqual((ctx.exception.field, ctx.exception.issue), ("DKM", "MISSING"))
+
+    def test_demo_reports_specific_kda_hex_field_without_value(self):
+        """ACVP report contains a reviewed field/category code, no raw vector data."""
+        from test_demo_client import FakeTransport
+
+        class InvalidKdaVector(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    payload = vectors()
+                    payload[1]["vsId"] = 91
+                    payload[1]["testGroups"][0]["tests"][0]["kdfParameter"]["z"] = (
+                        "SECRET_SHOULD_NOT_BE_LOGGED")
+                    return payload
+                return super().request(method, path, token, body)
+
+        server = InvalidKdaVector()
+        selected = ("SHA2-256", "SHA2-384", "SHA2-512",
+                    "HMAC-SHA2-256", "HMAC-SHA2-384", "HMAC-SHA2-512",
+                    SELECTION)
+        report = execute(server, type("Engine", (), {"kdf": object()})(),
+                         "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+                         selected, poll_count=1, drbg_validation="ACVP-123")
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        self.assertEqual(report["vectors"][0]["diagnostic_code"], "HEX_Z_ODD_LENGTH")
+        self.assertNotIn("SECRET_SHOULD_NOT_BE_LOGGED", str(report))
+        self.assertNotIn("private-session-token", str(report))
+        self.assertFalse(any(method == "POST" and path == server.vector + "/results"
+                             for method, path, _, _ in server.calls))
 
     def test_mock_authenticated_demo_session_sanitizes_tokens(self):
         from test_demo_client import FakeTransport

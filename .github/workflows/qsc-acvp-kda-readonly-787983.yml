@@ -1,0 +1,111 @@
+# Read-only inspection of the existing NIST KDA-HKDF vectors in session 787983.
+# This workflow does not register a test session or upload any vector results.
+name: QSC ACVTS Demo KDA read-only session 787983 diagnosis
+
+on:
+  workflow_dispatch:
+    inputs:
+      approve_nist_network_session:
+        description: 'I authorize read-only inspection of existing ACVTS Demo session 787983'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-nist-demo-exclusive
+  cancel-in-progress: false
+
+jobs:
+  inspect-kda:
+    name: Inspect existing KDA-HKDF vector formats without submitting results
+    if: github.repository == 'QRCS-CORP/QSC-ACVP'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: acvts-demo
+    steps:
+      - name: Require explicit network authorization
+        shell: bash
+        env:
+          REQUEST_APPROVAL: ${{ inputs.approve_nist_network_session }}
+          DEMO_ENABLED: ${{ vars.ACVTS_DEMO_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$REQUEST_APPROVAL" = true || { echo 'FAIL: inspection not authorized'; exit 1; }
+          test "$DEMO_ENABLED" = true || { echo 'FAIL: protected ACVTS Demo environment disabled'; exit 1; }
+          echo 'PASS: protected read-only session inspection authorized'
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate the read-only analyzer locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q Source/ACVP
+          PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
+            python -m unittest test_kda_session_inspect.KdaSessionInspectTests -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-kda-inspection-preflight.log"
+          grep -Eq '^Ran 4 tests in' "$RUNNER_TEMP/qsc-kda-inspection-preflight.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-kda-inspection-preflight.log"
+          echo 'PASS: read-only inspection preflight'
+
+      - name: Load protected client identity
+        shell: bash
+        env:
+          NIST_CERT_B64: ${{ secrets.ACVTS_DEMO_CERT_B64 }}
+          NIST_KEY_B64: ${{ secrets.ACVTS_DEMO_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          test -n "$NIST_CERT_B64" || exit 1
+          test -n "$NIST_KEY_B64" || exit 1
+          printf '%s' "$NIST_CERT_B64" | base64 --decode > "$RUNNER_TEMP/acvts-inspection-cert.pem"
+          printf '%s' "$NIST_KEY_B64" | base64 --decode > "$RUNNER_TEMP/acvts-inspection-key.pem"
+          openssl x509 -noout -in "$RUNNER_TEMP/acvts-inspection-cert.pem" >/dev/null
+          openssl pkey -noout -in "$RUNNER_TEMP/acvts-inspection-key.pem" >/dev/null
+          cert_key="$(openssl x509 -in "$RUNNER_TEMP/acvts-inspection-cert.pem" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')"
+          private_key="$(openssl pkey -in "$RUNNER_TEMP/acvts-inspection-key.pem" -pubout -outform DER | sha256sum | awk '{print $1}')"
+          test "$cert_key" = "$private_key" || exit 1
+          echo 'PASS: NIST client certificate verified'
+
+      - name: Inspect previously generated KDA vectors by GET only
+        shell: bash
+        env:
+          ACVP_TOTP_SEED: ${{ secrets.ACVTS_DEMO_TOTP_B64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          python Source/ACVP/kda_session_inspect.py \
+            --cert "$RUNNER_TEMP/acvts-inspection-cert.pem" \
+            --key "$RUNNER_TEMP/acvts-inspection-key.pem" \
+            --session-id 787983 --vector-ids 4151665 4151666 \
+            --output "$RUNNER_TEMP/qsc-kda-readonly-787983.json"
+
+      - name: Delete ephemeral NIST identity
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -f "$RUNNER_TEMP/acvts-inspection-cert.pem" "$RUNNER_TEMP/acvts-inspection-key.pem"
+
+      - name: Upload sanitized field-structure report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-kda-readonly-existing-session-787983
+          path: |
+            ${{ runner.temp }}/qsc-kda-readonly-787983.json
+            ${{ runner.temp }}/qsc-kda-inspection-preflight.log
+          if-no-files-found: warn
+          retention-days: 14

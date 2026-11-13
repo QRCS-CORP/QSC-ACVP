@@ -76,7 +76,8 @@ import urllib.request
 from local_client import QSC, build_response
 from drbg_client import QscDrbg, registration as drbg_registration
 from kdf_client import QscKdf, pbkdf_registration
-from kda_hkdf_client import registration as kda_hkdf_registration, SELECTION as KDA_HKDF
+from kda_hkdf_client import (registration as kda_hkdf_registration,
+                             SELECTION as KDA_HKDF, KdaHexError)
 from ecc_client import QscEcc, registration as ecc_registration
 from mlkem_client import QscMlKem, registration as mlkem_registration
 from mldsa_client import QscMlDsa, registration as mldsa_registration
@@ -538,6 +539,17 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                 }
                 vector_result["diagnostic_code"] = kda_errors.get(
                     str(exc), "UNCLASSIFIED_VALUE_ERROR")
+                if isinstance(exc, KdaHexError):
+                    # Fixed field identifiers and causes are the only extra
+                    # metadata emitted; never expose any server vector value.
+                    fields = frozenset(("Z", "SALT", "U_PARTY_ID",
+                                        "V_PARTY_ID", "U_EPHEMERAL",
+                                        "V_EPHEMERAL", "DKM"))
+                    issues = frozenset(("MISSING", "TYPE", "TOO_LONG",
+                                        "ODD_LENGTH", "ENCODING"))
+                    if exc.field in fields and exc.issue in issues:
+                        vector_result["diagnostic_code"] = (
+                            "HEX_" + exc.field + "_" + exc.issue)
             if vector_result["algorithm"] == AES_ECB and isinstance(exc, ValueError):
                 # Only fixed, reviewed adapter error labels may enter evidence;
                 # arbitrary server or exception text must never be serialized.
