@@ -7,7 +7,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from demo_client import registration
 from mldsa_client import PARAMETERS as MLDSA_PARAMETERS, build_mldsa_response
-from slhdsa_client import build_slhdsa_response
+from slhdsa_client import PARAMETERS as SLH_PARAMETERS, build_slhdsa_response
 from local_client import build_response
 
 
@@ -209,6 +209,119 @@ class PqVectorModeTests(unittest.TestCase):
                  "signatureInterface": "external", "preHash": "preHash", "tests": []}
         with self.assertRaises(ValueError):
             build_slhdsa_response(vector("SLH-DSA", "sigVer", "FIPS205", group), FakeSlh())
+
+    def test_slhdsa_registration_requires_shake256_prerequisite(self):
+        """FIPS205 SHAKE-only registrations require SHAKE-256 in the session."""
+        with self.assertRaises(ValueError):
+            registration(("SLH-DSA",))
+        selected = ("SHAKE-256", "SLH-DSA")
+        caps = registration(selected)[1]["algorithms"][-3:]
+        self.assertEqual([x["mode"] for x in caps], ["keyGen", "sigGen", "sigVer"])
+        self.assertEqual([x["revision"] for x in caps], ["FIPS205"] * 3)
+        self.assertEqual(caps[0]["parameterSets"], list(SLH_PARAMETERS))
+        for capability in caps:
+            self.assertEqual(capability["prereqVals"],
+                             [{"algorithm": "SHAKE", "valValue": "same"}])
+
+    def test_slhdsa_multigroup_keygen_all_six_parameter_sets(self):
+        """Preserve tcIds and exact expanded key sizes across all SHAKE sets."""
+        class KeyGenerator:
+            def keygen(self, name, sk_seed, sk_prf, pk_seed):
+                return (bytes([1]) * SLH_PARAMETERS[name][1],
+                        bytes([2]) * SLH_PARAMETERS[name][2])
+
+        groups = []
+        for index, name in enumerate(SLH_PARAMETERS, 1):
+            seed_len = SLH_PARAMETERS[name][4] // 3
+            groups.append({"tgId": index, "testType": "AFT", "parameterSet": name,
+                           "tests": [{"tcId": index * 10, "skSeed": "aa" * seed_len,
+                                      "skPrf": "bb" * seed_len,
+                                      "pkSeed": "cc" * seed_len}]})
+        request = vector("SLH-DSA", "keyGen", "FIPS205", groups[0])
+        request[1]["testGroups"] = groups
+        response = build_slhdsa_response(request, KeyGenerator())[1]["testGroups"]
+        self.assertEqual([g["tgId"] for g in response], list(range(1, 7)))
+        for source, answer in zip(groups, response):
+            lengths = SLH_PARAMETERS[source["parameterSet"]]
+            self.assertEqual(answer["tests"][0]["tcId"], source["tests"][0]["tcId"])
+            self.assertEqual(len(answer["tests"][0]["pk"]), lengths[1] * 2)
+            self.assertEqual(len(answer["tests"][0]["sk"]), lengths[2] * 2)
+
+    def test_slhdsa_multigroup_signing_context_boundaries(self):
+        """All six deterministic external-pure variants permit 0..255 context bytes."""
+        class SigningAdapter:
+            def sign(self, name, sk, message, context):
+                return bytes([0xA6]) * SLH_PARAMETERS[name][3]
+
+        groups = []
+        for index, name in enumerate(SLH_PARAMETERS, 1):
+            groups.append({"tgId": index, "testType": "AFT",
+                           "parameterSet": name, "signatureInterface": "external",
+                           "preHash": "pure", "deterministic": True,
+                           "tests": [{"tcId": index * 10, "sk": "22" * SLH_PARAMETERS[name][2],
+                                      "message": "01", "context": ""},
+                                     {"tcId": index * 10 + 1,
+                                      "sk": "22" * SLH_PARAMETERS[name][2],
+                                      "message": "ab" * 32, "context": "cd" * 255}]})
+        request = vector("SLH-DSA", "sigGen", "FIPS205", groups[0])
+        request[1]["testGroups"] = groups
+        result = build_slhdsa_response(request, SigningAdapter())[1]["testGroups"]
+        self.assertEqual([g["tgId"] for g in result], list(range(1, 7)))
+        for group_in, group_out in zip(groups, result):
+            self.assertEqual([t["tcId"] for t in group_out["tests"]],
+                             [t["tcId"] for t in group_in["tests"]])
+            for item in group_out["tests"]:
+                self.assertEqual(len(item["signature"]),
+                                 SLH_PARAMETERS[group_in["parameterSet"]][3] * 2)
+
+    def test_slhdsa_sigver_invalid_signatures_are_not_adapter_errors(self):
+        """NIST invalid-signature cases return testPassed rather than aborting."""
+        class Verifier:
+            def verify(self, name, pk, message, context, signature):
+                return bool(signature) and signature[0] == 0xA6
+
+        groups = []
+        for index, name in enumerate(SLH_PARAMETERS, 1):
+            groups.append({"tgId": index, "testType": "AFT",
+                           "parameterSet": name, "signatureInterface": "external",
+                           "preHash": "pure",
+                           "tests": [{"tcId": index * 2, "pk": "11" * SLH_PARAMETERS[name][1],
+                                      "message": "ab", "context": "",
+                                      "signature": "a6" * SLH_PARAMETERS[name][3]},
+                                     {"tcId": index * 2 + 1,
+                                      "pk": "11" * SLH_PARAMETERS[name][1],
+                                      "message": "ab", "context": "01",
+                                      "signature": "00" * SLH_PARAMETERS[name][3]}]})
+        request = vector("SLH-DSA", "sigVer", "FIPS205", groups[0])
+        request[1]["testGroups"] = groups
+        result = build_slhdsa_response(request, Verifier())[1]["testGroups"]
+        self.assertEqual(len(result), 6)
+        for group in result:
+            self.assertEqual([x["testPassed"] for x in group["tests"]], [True, False])
+
+    def test_slhdsa_rejects_unadvertised_empty_message_randomized_prehash(self):
+        """Do not process inputs excluded from the registered FIPS205 profile."""
+        group = {"tgId": 1, "testType": "AFT",
+                 "parameterSet": "SLH-DSA-SHAKE-128s",
+                 "signatureInterface": "external", "preHash": "pure",
+                 "deterministic": True,
+                 "tests": [{"tcId": 1, "sk": "22" * 64, "message": "", "context": ""}]}
+        with self.assertRaisesRegex(ValueError, "message outside registered length"):
+            build_slhdsa_response(vector("SLH-DSA", "sigGen", "FIPS205", group),
+                                  FakeSlh())
+        for key, invalid in (("preHash", "preHash"), ("deterministic", False),
+                             ("signatureInterface", "internal")):
+            bad = dict(group)
+            bad[key] = invalid
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                build_slhdsa_response(
+                    vector("SLH-DSA", "sigGen", "FIPS205", bad), FakeSlh())
+        bad = dict(group)
+        bad["tests"] = [{"tcId": 1, "sk": "22" * 64, "message": "ab",
+                         "context": "ff" * 256}]
+        with self.assertRaises(ValueError):
+            build_slhdsa_response(vector("SLH-DSA", "sigGen", "FIPS205", bad),
+                                  FakeSlh())
 
     def test_global_dispatch_requires_configured_signature_libraries(self):
         group = {"tgId": 1, "testType": "AFT", "parameterSet": "ML-DSA-44", "tests": []}
