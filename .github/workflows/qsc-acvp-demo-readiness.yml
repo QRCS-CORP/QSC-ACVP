@@ -74,6 +74,19 @@ jobs:
           fi
           echo 'PASS: AES-ECB multi-block AFT and single-block MCT regression checks'
 
+      - name: Verify AES-CTR counter-test and AFT vector parsing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s Source/ACVP/tests -p test_aes_modes.py -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-acvp-demo-readiness/aes-modes-tests.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-acvp-demo-readiness/aes-modes-tests.log"
+          if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-acvp-demo-readiness/aes-modes-tests.log"; then
+            echo 'FAIL: AES-CTR counter and AFT regression checks' >&2
+            exit 1
+          fi
+          echo 'PASS: AES-CTR counter tests omit payloadLen; AFT remains strict'
+
       - name: Verify credentials are absent from regression process
         shell: bash
         run: |
@@ -109,6 +122,11 @@ jobs:
           passed = passed and ('\nOK\n' in aes and 'Ran 12 tests' in aes and
                                'FAILED' not in aes and 'ERROR' not in aes and
                                'skipped=' not in aes)
+          ctr_path = out / 'aes-modes-tests.log'
+          ctr = ctr_path.read_text(encoding='utf-8') if ctr_path.is_file() else ''
+          passed = passed and ('\nOK\n' in ctr and 'Ran 16 tests' in ctr and
+                               'FAILED' not in ctr and 'ERROR' not in ctr and
+                               'skipped=' not in ctr)
           report = {
               'type': 'ACVTS_DEMO_CREDENTIAL_FREE_PROTOCOL_READINESS',
               'timestamp_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
