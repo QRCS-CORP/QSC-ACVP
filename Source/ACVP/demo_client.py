@@ -515,6 +515,31 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                         "INVALID_HEX_" + field.upper())
                 vector_result["diagnostic_code"] = aes_ecb_errors.get(
                     str(exc), "UNCLASSIFIED_VALUE_ERROR")
+            if vector_result["algorithm"] == AES_CTR and isinstance(exc, ValueError):
+                # Report only fixed adapter codes. Never emit arbitrary exception
+                # text: transport errors may contain URLs or response material.
+                ctr_errors = {
+                    "Invalid AES-CTR envelope": "INVALID_ENVELOPE",
+                    "Invalid AES-CTR vector set": "INVALID_VECTOR",
+                    "Unsupported AES-CTR group": "UNSUPPORTED_GROUP",
+                    "Malformed AES-CTR case": "MALFORMED_CASE",
+                    "AES-CTR key length mismatch": "KEY_LENGTH",
+                    "AES-CTR IV length mismatch": "IV_LENGTH",
+                    "AES-CTR missing payload length": "MISSING_PAYLOAD_LEN",
+                    "AES-CTR payload length mismatch": "PAYLOAD_LEN",
+                    "AES-CTR payload outside supported range": "PAYLOAD_RANGE",
+                    "AES-CTR requires byte-aligned external-counter vectors": "VECTOR_LENGTH",
+                    "Unsupported AES-CTR parameters": "NATIVE_PARAMETERS",
+                    "QSC AES-CTR operation failed": "NATIVE_AES_FAILURE",
+                    "AES library was not configured": "MISSING_AES_ADAPTER"
+                }
+                for field in ("key", "iv", "pt", "ct"):
+                    ctr_errors["Missing or malformed " + field] = (
+                        "MISSING_OR_MALFORMED_" + field.upper())
+                    ctr_errors["Invalid hex for " + field] = (
+                        "INVALID_HEX_" + field.upper())
+                vector_result["diagnostic_code"] = ctr_errors.get(
+                    str(exc), "UNCLASSIFIED_VALUE_ERROR")
     if any(item["status"] == "FAIL" for item in report["vectors"]):
         report["status"] = "FAIL_OR_UNSUPPORTED_VECTOR"
         return report
