@@ -119,7 +119,7 @@ jobs:
                          and 'skipped=' not in verification))
           aes_path = out / 'aes-vector-tests.log'
           aes = aes_path.read_text(encoding='utf-8') if aes_path.is_file() else ''
-          passed = passed and ('\nOK\n' in aes and 'Ran 12 tests' in aes and
+          passed = passed and ('\nOK\n' in aes and 'Ran 17 tests' in aes and
                                'FAILED' not in aes and 'ERROR' not in aes and
                                'skipped=' not in aes)
           ctr_path = out / 'aes-modes-tests.log'
