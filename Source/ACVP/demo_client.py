@@ -156,7 +156,9 @@ def registration(algorithms: tuple[str, ...] = SHA_ALGORITHMS,
         elif name == "PBKDF":
             capabilities.append(pbkdf_registration())
         elif name in ("ECDSA", "DetECDSA", "EDDSA", "XECDH", "KAS-ECC-SSC"):
-            capabilities.extend(ecc_registration(name, drbg_validation))
+            capabilities.extend(ecc_registration(
+                name, drbg_validation,
+                allow_same_session=(drbg_validation == "same" and "hmacDRBG" in algorithms)))
         elif name == "SLH-DSA":
             capabilities.extend(slhdsa_registration())
         elif name == "ML-DSA":
@@ -796,11 +798,17 @@ def main() -> int:
             parser.error("KDA-HKDF requires ACVP_KDA_DRBG_VALIDATION or same-session hmacDRBG")
         elif not drbg_validation:
             drbg_validation = kda_drbg_validation
+    ecc_hcg = ecc_selected and "hmacDRBG" in args.algorithms
+    if ecc_hcg:
+        if drbg_validation not in (None, "", "same"):
+            parser.error("Same-session ECC HCG cannot use an external DRBG validation reference")
+        drbg_validation = "same"
     if ecc_selected and not drbg_validation:
-        parser.error("ECC registration requires ACVP_ECC_DRBG_VALIDATION (verified DRBG prerequisite)")
-    if ecc_selected and os.environ.get("ACVP_ECC_RNG_QUALIFIED") != "1":
-        parser.error("ECC live registration requires independently qualified RNG integration")
+        parser.error("ECC registration requires a DRBG prerequisite")
+    if ecc_selected and not ecc_hcg and os.environ.get("ACVP_ECC_RNG_QUALIFIED") != "1":
+        parser.error("ECC external DRBG registration requires qualified RNG integration")
     report = {"type": "NIST_ACVTS_DEMO_SAMPLE_NOT_CAVP_CERTIFICATE", "status": "ERROR"}
+    ecc_rng = None
     try:
         transport = DemoTransport(args.cert, args.key, args.large_origin)
         qsc = QSC(args.library)
@@ -814,11 +822,17 @@ def main() -> int:
             qsc.dsa = QscMlDsa(args.pq_library)
             qsc.slh = QscSlhDsa(args.pq_library)
         if ecc_selected:
-            qsc.ecc = QscEcc(args.ecc_library)
+            if ecc_hcg:
+                ecc_rng = QscDrbg(args.drbg_library, "hcg")
+                ecc_rng.instantiate(os.urandom(32), os.urandom(16))
+            qsc.ecc = QscEcc(args.ecc_library, rng=ecc_rng)
         report = execute(transport, qsc, seed, tuple(args.algorithms),
                          drbg_validation=drbg_validation)
     except (ValueError, TypeError, urllib.error.URLError, OSError) as exc:
         report["error_category"] = type(exc).__name__
+    finally:
+        if ecc_rng is not None:
+            ecc_rng.dispose()
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "demo-results.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(f"ACVTS Demo sample status: {report['status']}; "

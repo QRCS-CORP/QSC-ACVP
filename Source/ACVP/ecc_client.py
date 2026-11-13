@@ -61,7 +61,6 @@ import ctypes as c
 import hmac
 import os
 import re
-import secrets
 
 NIST_CURVES = {"P-256": ("p256", 32, "SHA2-256"),
                "P-384": ("p384", 48, "SHA2-384"),
@@ -117,8 +116,9 @@ def bind(library, name, result, arguments):
 class QscEcc:
     """Call original QSC ECC APIs through a separate qualification library."""
 
-    def __init__(self, library, require_complete=True):
+    def __init__(self, library, require_complete=True, rng=None):
         self._dll = c.CDLL(str(library))
+        self._rng = rng
         # The complete ECDSA target requires all three curves, including P-384.
         for name, _, _ in NIST_CURVES.values():
             if not require_complete and name == "p384":
@@ -152,6 +152,24 @@ class QscEcc:
             bind(self._dll, f"qsc_{name}_key_exchange", c.c_bool,
                  [c.c_void_p, c.c_void_p, c.c_void_p])
 
+    def _random_bytes(self, length):
+        """Use the injected HCG generator, or the offline OS-entropy fallback."""
+        value = self._rng.generate(length) if self._rng is not None else os.urandom(length)
+        if not isinstance(value, bytes) or len(value) != length:
+            raise ValueError("ECC random provider returned an invalid output")
+        return value
+
+    def _random_scalar(self, curve):
+        """Rejection-sample a uniform private scalar in [1, n-1]."""
+        order = CURVE_ORDERS[curve]
+        width = NIST_CURVES[curve][1]
+        mask = (1 << order.bit_length()) - 1
+        for _ in range(256):
+            candidate = int.from_bytes(self._random_bytes(width), "big") & mask
+            if 1 <= candidate < order:
+                return bytearray(candidate.to_bytes(width, "big"))
+        raise ValueError("ECC scalar rejection sampler exhausted")
+
     def ecdsa_keygen(self, curve):
         """Generate a test scalar using rejection sampling and derive Q through QSC.
 
@@ -159,7 +177,7 @@ class QscEcc:
         validated QSC DRBG. Live use requires an actual DRBG qualification.
         """
         name, size, _ = NIST_CURVES[curve]
-        scalar = bytearray((secrets.randbelow(CURVE_ORDERS[curve] - 1) + 1).to_bytes(size, "big"))
+        scalar = self._random_scalar(curve)
         public = c.create_string_buffer(2 * size)
         try:
             status = getattr(self._dll, f"qsc_{name}_publickey_from_privatekey")(
@@ -182,7 +200,7 @@ class QscEcc:
     def eddsa_keygen(self, curve):
         """Return a generated EdDSA seed and its QSC-derived public key."""
         name, size, _ = ED_CURVES[curve]
-        seed = bytearray(os.urandom(size))
+        seed = bytearray(self._random_bytes(size))
         private = c.create_string_buffer(2 * size)
         public = c.create_string_buffer(size)
         try:
@@ -205,7 +223,7 @@ class QscEcc:
     def xecdh_keygen(self, curve):
         """Generate a test XECDH scalar and obtain QSC's public key."""
         name, size = X_CURVES[curve]
-        private = bytearray(os.urandom(size))
+        private = bytearray(self._random_bytes(size))
         public = c.create_string_buffer(size)
         try:
             getattr(self._dll, f"qsc_{name}_public_from_private")(
@@ -235,7 +253,7 @@ class QscEcc:
         FIPS 186-5 key generation or approved random-bit generation.
         """
         name, size, _ = NIST_CURVES[curve]
-        seed = bytearray(os.urandom(size))
+        seed = bytearray(self._random_bytes(size))
         seed_view = (c.c_ubyte * size).from_buffer(seed)
         public = c.create_string_buffer(2 * size)
         private = c.create_string_buffer(3 * size)
@@ -263,7 +281,7 @@ class QscEcc:
     def eddsa_sign_group(self, curve, messages):
         """Generate one pure EdDSA keypair and sign the group's messages."""
         name, size, signature_size = ED_CURVES[curve]
-        seed = bytearray(os.urandom(size))
+        seed = bytearray(self._random_bytes(size))
         seed_view = (c.c_ubyte * size).from_buffer(seed)
         private = c.create_string_buffer(2 * size)
         public = c.create_string_buffer(size)
@@ -333,7 +351,7 @@ class QscEcc:
         name, size, _ = NIST_CURVES[curve]
         if len(peer) != 2 * size:
             raise ValueError("Invalid ECDH peer size")
-        seed = bytearray(os.urandom(size))
+        seed = bytearray(self._random_bytes(size))
         seed_view = (c.c_ubyte * size).from_buffer(seed)
         private = c.create_string_buffer(size)
         public = c.create_string_buffer(2 * size)
@@ -354,7 +372,7 @@ class QscEcc:
         name, size = X_CURVES[curve]
         if len(server_public) != size:
             raise ValueError("Invalid server public-key length")
-        private = bytearray(os.urandom(size))
+        private = bytearray(self._random_bytes(size))
         public = c.create_string_buffer(size)
         shared = c.create_string_buffer(size)
         private_buffer = (c.c_ubyte * size).from_buffer(private)
@@ -370,19 +388,20 @@ class QscEcc:
                 private[index] = 0
 
 
-def registration(algorithm, drbg_validation, mode=None):
+def registration(algorithm, drbg_validation, mode=None, allow_same_session=False):
     """Register one exact, locally supported ECC operation with verified DRBG ID.
 
-    A real DRBG validation number is required for live sessions. `same` is not
-    accepted as an implicit claim. Missing QSC implementation symbols fail at
+    A DRBG prerequisite must be externally verified or explicitly linked to
+    same-session HCG registration. Missing QSC implementation symbols fail at
     library initialization; no curve is silently removed from registration.
     """
     # Local HCG/CSG designations are not SP 800-90A DRBG validation numbers.
     # A syntactically accepted external value does not prove its provenance.
-    invalid = ("same", "pending", "none", "not-validated",
+    invalid = ("pending", "none", "not-validated",
                "hcg", "csg", "qsc-hcg", "qsc-csg")
     if (not isinstance(drbg_validation, str) or not drbg_validation.strip() or
-            drbg_validation.strip().lower() in invalid):
+            drbg_validation.strip().lower() in invalid or
+            (drbg_validation.strip().lower() == "same" and not allow_same_session)):
         raise ValueError("ECC registration requires a verified DRBG prerequisite")
     prereq = [{"algorithm": "DRBG", "valValue": drbg_validation.strip()}]
     prime_curves = list(NIST_CURVES)
