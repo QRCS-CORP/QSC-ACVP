@@ -101,6 +101,20 @@ jobs:
           fi
           echo 'PASS: PBKDF ACVP schema, length and prerequisite regressions'
 
+      - name: Verify ML-KEM FIPS203-tr1 schema and mode compatibility offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s Source/ACVP/tests -p test_mlkem_vectors.py -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-acvp-demo-readiness/mlkem-schema-tests.log"
+          grep -Eq '^Ran 16 tests in' "$RUNNER_TEMP/qsc-acvp-demo-readiness/mlkem-schema-tests.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-acvp-demo-readiness/mlkem-schema-tests.log"
+          if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-acvp-demo-readiness/mlkem-schema-tests.log"; then
+            echo 'FAIL: ML-KEM FIPS203-tr1 compatibility regression' >&2
+            exit 1
+          fi
+          echo 'PASS: ML-KEM keyGen and expanded-key encapDecap schema'
+
       - name: Verify credentials are absent from regression process
         shell: bash
         run: |
@@ -126,7 +140,7 @@ jobs:
           recovery = out / 'verdict-client-tests.log'
           data = primary.read_text(encoding='utf-8') if primary.is_file() else ''
           verification = recovery.read_text(encoding='utf-8') if recovery.is_file() else ''
-          passed = (('\nOK\n' in data and 'Ran 32 tests' in data and
+          passed = (('\nOK\n' in data and 'Ran 34 tests' in data and
                      'FAILED' not in data and 'ERROR' not in data and 'skipped=' not in data)
                     and ('\nOK\n' in verification and 'Ran 6 tests' in verification and
                          'FAILED' not in verification and 'ERROR' not in verification
@@ -146,6 +160,11 @@ jobs:
           passed = passed and ('\nOK\n' in pbkdf and 'Ran 11 tests' in pbkdf and
                                'FAILED' not in pbkdf and 'ERROR' not in pbkdf and
                                'skipped=' not in pbkdf)
+          mlkem_path = out / 'mlkem-schema-tests.log'
+          mlkem = mlkem_path.read_text(encoding='utf-8') if mlkem_path.is_file() else ''
+          passed = passed and ('\nOK\n' in mlkem and 'Ran 16 tests' in mlkem and
+                               'FAILED' not in mlkem and 'ERROR' not in mlkem and
+                               'skipped=' not in mlkem)
           report = {
               'type': 'ACVTS_DEMO_CREDENTIAL_FREE_PROTOCOL_READINESS',
               'timestamp_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
