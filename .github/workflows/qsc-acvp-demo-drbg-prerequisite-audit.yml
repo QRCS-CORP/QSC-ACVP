@@ -1,0 +1,63 @@
+# DRBG provenance and remaining ECC/KDA-HKDF adapter audit, with no NIST access.
+name: QSC ACVP DRBG prerequisite audit (offline)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: qsc-acvp-sequential-qualification
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout reviewed ACVP adapter
+        uses: actions/checkout@v4
+      - name: Prepare Python and independent ECC oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q Source/ACVP
+          python -m pip install --disable-pip-version-check cryptography==46.0.4
+      - name: Verify 28 ECC and KDA-HKDF adapter cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
+            python -m unittest test_ecc_vectors.ECCVectorTests \
+              test_kda_hkdf_vectors.KdaHkdfSchemaTests -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-drbg-prerequisite-tests.log"
+          grep -Eq '^Ran 28 tests in' "$RUNNER_TEMP/qsc-drbg-prerequisite-tests.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-drbg-prerequisite-tests.log"
+          if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-drbg-prerequisite-tests.log"; then
+            echo 'FAIL: DRBG prerequisite regressions' >&2
+            exit 1
+          fi
+      - name: Reject invalid DRBG claims and missing references
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=Source/ACVP python - <<'PY'
+          from demo_client import registration
+          from ecc_client import registration as ecc
+          from kda_hkdf_client import registration as kda
+
+          for claim in ("HCG", "CSG", "qsc-hcg", "QSC-CSG", "same", "pending"):
+              for method in (lambda: ecc("ECDSA", claim), lambda: kda(claim)):
+                  try:
+                      method()
+                  except ValueError:
+                      continue
+                  raise SystemExit("FAIL: invalid DRBG claim accepted")
+
+          for algorithms in (
+                  ("SHA2-256", "SHA2-384", "SHA2-512", "ECDSA"),
+                  ("HMAC-SHA2-256", "HMAC-SHA2-384", "HMAC-SHA2-512", "KDA-HKDF")):
+              try:
+                  registration(algorithms)
+              except ValueError:
+                  continue
+              raise SystemExit("FAIL: absent DRBG prerequisite accepted")
+          print("PASS: DRBG prerequisite policy, NIST not contacted")
+          PY
