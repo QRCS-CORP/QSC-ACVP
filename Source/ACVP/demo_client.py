@@ -515,6 +515,29 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
             # may include URLs, bearer tokens or request bodies in their error strings.
             vector_result["reason"] = type(exc).__name__
             vector_result["stage"] = stage
+            if vector_result["algorithm"] == KDA_HKDF and isinstance(exc, ValueError):
+                # Fixed, reviewed categories identify schema/capability mismatches.
+                # Never serialize arbitrary exception text, secrets, or vector bytes.
+                kda_errors = {
+                    "Invalid ACVP KDA envelope": "INVALID_ENVELOPE",
+                    "Unsupported KDA-HKDF vector set": "UNSUPPORTED_VECTOR",
+                    "Malformed KDA-HKDF group": "MALFORMED_GROUP",
+                    "Unsupported KDA-HKDF configuration": "UNSUPPORTED_CONFIGURATION",
+                    "Unsupported KDA-HKDF length": "UNSUPPORTED_LENGTH",
+                    "Malformed KDA-HKDF case": "MALFORMED_CASE",
+                    "Unsupported KDA-HKDF case parameters": "UNSUPPORTED_PARAMETERS",
+                    "Invalid ACVP hex field": "INVALID_HEX",
+                    "KDA-HKDF input bit length mismatch": "INPUT_LENGTH_MISMATCH",
+                    "Default salt must be zero-filled": "INVALID_DEFAULT_SALT",
+                    "Missing fixed-info party identifier": "MISSING_PARTY_ID",
+                    "Empty fixed-info party identifier": "EMPTY_PARTY_ID",
+                    "Invalid HKDF output length": "HKDF_OUTPUT_LENGTH",
+                    "VAL expected DKM size mismatch": "VAL_DKM_LENGTH",
+                    "Unsupported QSC HKDF input": "NATIVE_HKDF_INPUT",
+                    "KDA-HKDF requires a QSC KDF library": "MISSING_KDA_ADAPTER"
+                }
+                vector_result["diagnostic_code"] = kda_errors.get(
+                    str(exc), "UNCLASSIFIED_VALUE_ERROR")
             if vector_result["algorithm"] == AES_ECB and isinstance(exc, ValueError):
                 # Only fixed, reviewed adapter error labels may enter evidence;
                 # arbitrary server or exception text must never be serialized.
