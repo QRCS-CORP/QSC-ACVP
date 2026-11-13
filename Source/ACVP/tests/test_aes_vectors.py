@@ -115,6 +115,73 @@ class AesVectorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_aes_response(envelope, StubAes())
 
+    def test_aes_gcm_nist_group_empty_payload_and_aad(self):
+        """AFT group lengths may be zero, with empty hex-valued test inputs."""
+        for keylen in (128, 256):
+            for direction in ('encrypt', 'decrypt'):
+                envelope = self.gcm(direction)
+                group = envelope[1]['testGroups'][0]
+                group['keyLen'] = keylen
+                group['payloadLen'] = 0
+                group['aadLen'] = 0
+                group['ivGenMode'] = '8.2.2'
+                case = group['tests'][0]
+                case['key'] = '00' * (keylen // 8)
+                case['aad'] = ''
+                case['pt' if direction == 'encrypt' else 'ct'] = ''
+                result = build_aes_response(envelope, StubAes())
+                actual = result[1]['testGroups'][0]['tests'][0]
+                if direction == 'encrypt':
+                    self.assertEqual(actual, {'tcId': 4, 'iv': '01' * 12,
+                                              'ct': '', 'tag': 'AA' * 16})
+                else:
+                    self.assertEqual(actual, {'tcId': 4, 'pt': ''})
+
+    def test_aes_gcm_nist_legacy_field_names(self):
+        """ACVP request aliases plainText and cipherText must both work."""
+        for direction, source_name in (('encrypt', 'plainText'),
+                                       ('decrypt', 'cipherText')):
+            envelope = self.gcm(direction)
+            case = envelope[1]['testGroups'][0]['tests'][0]
+            case[source_name] = case.pop('pt' if direction == 'encrypt' else 'ct')
+            actual = build_aes_response(envelope, StubAes())[1]['testGroups'][0]['tests'][0]
+            self.assertEqual(actual['tcId'], 4)
+            self.assertEqual(actual['ct' if direction == 'encrypt' else 'pt'],
+                             '4444' if direction == 'encrypt' else '1234')
+
+    def test_aes_gcm_nist_multiple_group_lengths(self):
+        """GCM AFT uses bit lengths at group scope for payload and AAD."""
+        for data_len, aad_len in ((0, 0), (1, 1), (16, 0),
+                                  (17, 16), (32, 32), (8192, 8)):
+            envelope = self.gcm()
+            group = envelope[1]['testGroups'][0]
+            group['payloadLen'] = data_len * 8
+            group['aadLen'] = aad_len * 8
+            case = group['tests'][0]
+            case['pt'] = '01' * data_len
+            case['aad'] = '02' * aad_len
+            result = build_aes_response(envelope, StubAes())
+            self.assertEqual(result[1]['testGroups'][0]['tests'][0]['ct'],
+                             '44' * data_len)
+
+    def test_aes_gcm_reject_mismatched_length_metadata(self):
+        """Invalid group payload or AAD length must fail before native AES."""
+        for field, actual in (('payloadLen', 8), ('aadLen', 16)):
+            envelope = self.gcm()
+            envelope[1]['testGroups'][0][field] = actual
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError,
+                                                                    'does not match'):
+                build_aes_response(envelope, StubAes())
+
+    def test_aes_gcm_decrypt_invalid_tag_reports_failure(self):
+        """Authentication rejection is a valid ACVP response, not a client error."""
+        envelope = self.gcm('decrypt')
+        case = envelope[1]['testGroups'][0]['tests'][0]
+        case['tag'] = '00' * 16
+        result = build_aes_response(envelope, StubAes())
+        self.assertEqual(result[1]['testGroups'][0]['tests'][0],
+                         {'tcId': 4, 'testPassed': False})
+
     def test_aes_ecb_aft(self):
         envelope = [{'acvVersion': '1.0'}, {'vsId': 99, 'algorithm': 'ACVP-AES-ECB',
                     'testGroups': [{'tgId': 3, 'direction': 'encrypt', 'testType': 'AFT',
