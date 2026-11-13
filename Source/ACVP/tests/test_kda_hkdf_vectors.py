@@ -217,6 +217,64 @@ class KdaHkdfSchemaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_response(vectors(), object())
 
+    def test_kda_rejected_group_reports_fixed_diagnostic(self):
+        """A malformed server group must yield an allowlisted KDA reason."""
+        from test_demo_client import FakeTransport
+
+        class KdaTransport(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    reply = vectors()
+                    reply[1]["vsId"] = 91
+                    reply[1]["testGroups"][0]["kdfConfiguration"]["fixedInfoPattern"] = (
+                        "unsupported-pattern")
+                    return reply
+                return super().request(method, path, token, body)
+
+        server = KdaTransport()
+        selected = ("SHA2-256", "SHA2-384", "SHA2-512",
+                    "HMAC-SHA2-256", "HMAC-SHA2-384", "HMAC-SHA2-512",
+                    SELECTION)
+        report = execute(server, type("Engine", (), {"kdf": object()})(),
+                         "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+                         selected, poll_count=1, drbg_validation="ACVP-123")
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        self.assertEqual(report["vectors"][0]["stage"], "BUILD_RESPONSE")
+        self.assertEqual(report["vectors"][0]["diagnostic_code"],
+                         "UNSUPPORTED_CONFIGURATION")
+        self.assertNotIn("private-session-token", str(report))
+        self.assertFalse(any(method == "POST" and path == server.vector + "/results"
+                             for method, path, _, _ in server.calls))
+
+    def test_kda_unknown_native_error_does_not_leak(self):
+        """Unexpected KDA failures must remain opaque in sanitized evidence."""
+        from test_demo_client import FakeTransport
+
+        class KdaTransport(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    reply = vectors()
+                    reply[1]["vsId"] = 91
+                    return reply
+                return super().request(method, path, token, body)
+
+        class RejectingKdf:
+            def hkdf(self, *args):
+                raise ValueError("sensitive-native-kda-internal-data")
+
+        server = KdaTransport()
+        selected = ("SHA2-256", "SHA2-384", "SHA2-512",
+                    "HMAC-SHA2-256", "HMAC-SHA2-384", "HMAC-SHA2-512",
+                    SELECTION)
+        report = execute(server, type("Engine", (), {"kdf": RejectingKdf()})(),
+                         "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+                         selected, poll_count=1, drbg_validation="ACVP-123")
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        self.assertEqual(report["vectors"][0]["diagnostic_code"],
+                         "UNCLASSIFIED_VALUE_ERROR")
+        self.assertNotIn("sensitive-native-kda-internal-data", str(report))
+        self.assertNotIn("private-session-token", str(report))
+
     def test_mock_authenticated_demo_session_sanitizes_tokens(self):
         from test_demo_client import FakeTransport
         class KdaTransport(FakeTransport):
