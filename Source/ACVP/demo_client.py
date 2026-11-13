@@ -419,6 +419,8 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                           if item["algorithm"] in ("ECDSA", "DetECDSA", "EDDSA", "XECDH", "KAS-ECC-SSC")}
     required_kem_modes = {item["mode"] for item in capability_envelope[1]["algorithms"]
                           if item["algorithm"] == "ML-KEM"}
+    required_dsa_modes = {item["mode"] for item in capability_envelope[1]["algorithms"]
+                          if item["algorithm"] == "ML-DSA"}
     session = transport.request("POST", DEMO_API + "/testSessions", token,
                                 capability_envelope)[1]
     session_path = check_path(session.get("url", ""))
@@ -590,6 +592,31 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                         "INVALID_" + field.upper() + "_HEX")
                 vector_result["diagnostic_code"] = kem_errors.get(
                     str(exc), "UNCLASSIFIED_VALUE_ERROR")
+            if vector_result["algorithm"] == "ML-DSA" and isinstance(exc, ValueError):
+                # Emit fixed diagnostic labels only; never expose signing keys,
+                # seed material, arbitrary native errors or transport bodies.
+                dsa_errors = {
+                    "Invalid ML-DSA vector envelope": "INVALID_ENVELOPE",
+                    "Unsupported ML-DSA vector set": "UNSUPPORTED_VECTOR",
+                    "Unsupported ML-DSA vector group": "UNSUPPORTED_GROUP",
+                    "Unsupported ML-DSA signature interface": "UNSUPPORTED_INTERFACE",
+                    "Unsupported ML-DSA signing mode or key format": "UNSUPPORTED_SIGNING_MODE",
+                    "Invalid ML-DSA case identifier": "INVALID_CASE",
+                    "ML-DSA message outside registered length": "MESSAGE_LENGTH",
+                    "ML-DSA seed must contain 32 bytes": "KEYGEN_SEED_LENGTH",
+                    "Unsupported ML-DSA signing input length": "SIGNING_INPUT_LENGTH",
+                    "Unsupported ML-DSA verification input length": "VERIFICATION_INPUT_LENGTH",
+                    "QSC deterministic ML-DSA signing failed": "NATIVE_SIGN_FAILURE",
+                    "QSC ML-DSA signing returned an invalid length": "NATIVE_SIGN_LENGTH",
+                    "ML-DSA library was not configured": "MISSING_DSA_ADAPTER"
+                }
+                for field in ("seed", "sk", "pk", "message", "context", "signature"):
+                    dsa_errors["Invalid ML-DSA " + field + " encoding"] = (
+                        "INVALID_" + field.upper() + "_HEX")
+                    dsa_errors["Invalid ML-DSA " + field + " length"] = (
+                        "INVALID_" + field.upper() + "_LENGTH")
+                vector_result["diagnostic_code"] = dsa_errors.get(
+                    str(exc), "UNCLASSIFIED_VALUE_ERROR")
     if any(item["status"] == "FAIL" for item in report["vectors"]):
         report["status"] = "FAIL_OR_UNSUPPORTED_VECTOR"
         return report
@@ -601,14 +628,18 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
     missing = set(selected) - executed
     exercised_kem_modes = {item.get("mode") for item in report["vectors"]
                           if item["status"] == "SUBMITTED" and item["algorithm"] == "ML-KEM"}
+    exercised_dsa_modes = {item.get("mode") for item in report["vectors"]
+                          if item["status"] == "SUBMITTED" and item["algorithm"] == "ML-DSA"}
     if (missing or required_ecc_modes - exercised_ecc or
-            required_kem_modes - exercised_kem_modes):
+            required_kem_modes - exercised_kem_modes or
+            required_dsa_modes - exercised_dsa_modes):
         report["status"] = "FAIL_INCOMPLETE_ALGORITHM_COVERAGE"
         report["missing_algorithms"] = sorted(missing)
         report["missing_ecc_modes"] = sorted(
             f"{name}/{mode if mode is not None else 'SSC'}"
             for name, mode in required_ecc_modes - exercised_ecc)
         report["missing_kem_modes"] = sorted(required_kem_modes - exercised_kem_modes)
+        report["missing_dsa_modes"] = sorted(required_dsa_modes - exercised_dsa_modes)
         return report
     for attempt in range(poll_count):
         outcome = transport.request("GET", session_path + "/results", session_token)[1]
