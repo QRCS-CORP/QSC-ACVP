@@ -421,6 +421,8 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                           if item["algorithm"] == "ML-KEM"}
     required_dsa_modes = {item["mode"] for item in capability_envelope[1]["algorithms"]
                           if item["algorithm"] == "ML-DSA"}
+    required_slh_modes = {item["mode"] for item in capability_envelope[1]["algorithms"]
+                          if item["algorithm"] == "SLH-DSA"}
     session = transport.request("POST", DEMO_API + "/testSessions", token,
                                 capability_envelope)[1]
     session_path = check_path(session.get("url", ""))
@@ -617,6 +619,34 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                         "INVALID_" + field.upper() + "_LENGTH")
                 vector_result["diagnostic_code"] = dsa_errors.get(
                     str(exc), "UNCLASSIFIED_VALUE_ERROR")
+            if vector_result["algorithm"] == "SLH-DSA" and isinstance(exc, ValueError):
+                # Emit reviewed, fixed labels only; never disclose SLH-DSA
+                # seeds, private keys, signatures or server response bodies.
+                slh_errors = {
+                    "Invalid SLH-DSA ACVP envelope": "INVALID_ENVELOPE",
+                    "Unsupported SLH-DSA vector set": "UNSUPPORTED_VECTOR",
+                    "Unsupported SLH-DSA group": "UNSUPPORTED_GROUP",
+                    "Unsupported SLH-DSA signature interface": "UNSUPPORTED_INTERFACE",
+                    "Unsupported SLH-DSA randomized signing": "UNSUPPORTED_SIGNING_MODE",
+                    "Invalid SLH-DSA test case identifier": "INVALID_CASE",
+                    "SLH-DSA message outside registered length": "MESSAGE_LENGTH",
+                    "SLH-DSA key-generation seed length mismatch": "KEYGEN_SEED_LENGTH",
+                    "QSC SLH-DSA key generation failed": "NATIVE_KEYGEN_FAILURE",
+                    "Unsupported SLH-DSA signing input length": "SIGNING_INPUT_LENGTH",
+                    "Unsupported SLH-DSA verification input length": "VERIFICATION_INPUT_LENGTH",
+                    "QSC SLH-DSA deterministic signature failed": "NATIVE_SIGN_FAILURE",
+                    "SLH-DSA library was not configured": "MISSING_SLH_ADAPTER"
+                }
+                for field in ("skSeed", "skPrf", "pkSeed", "sk", "pk",
+                              "message", "context", "signature"):
+                    slh_errors["Invalid SLH-DSA " + field + " encoding"] = (
+                        "INVALID_" + field.upper() + "_HEX")
+                    slh_errors["Invalid SLH-DSA " + field + " length"] = (
+                        "INVALID_" + field.upper() + "_LENGTH")
+                    slh_errors["Invalid SLH-DSA " + field + " size"] = (
+                        "INVALID_" + field.upper() + "_SIZE")
+                vector_result["diagnostic_code"] = slh_errors.get(
+                    str(exc), "UNCLASSIFIED_VALUE_ERROR")
     if any(item["status"] == "FAIL" for item in report["vectors"]):
         report["status"] = "FAIL_OR_UNSUPPORTED_VECTOR"
         return report
@@ -630,9 +660,12 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                           if item["status"] == "SUBMITTED" and item["algorithm"] == "ML-KEM"}
     exercised_dsa_modes = {item.get("mode") for item in report["vectors"]
                           if item["status"] == "SUBMITTED" and item["algorithm"] == "ML-DSA"}
+    exercised_slh_modes = {item.get("mode") for item in report["vectors"]
+                          if item["status"] == "SUBMITTED" and item["algorithm"] == "SLH-DSA"}
     if (missing or required_ecc_modes - exercised_ecc or
             required_kem_modes - exercised_kem_modes or
-            required_dsa_modes - exercised_dsa_modes):
+            required_dsa_modes - exercised_dsa_modes or
+            required_slh_modes - exercised_slh_modes):
         report["status"] = "FAIL_INCOMPLETE_ALGORITHM_COVERAGE"
         report["missing_algorithms"] = sorted(missing)
         report["missing_ecc_modes"] = sorted(
@@ -640,6 +673,7 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
             for name, mode in required_ecc_modes - exercised_ecc)
         report["missing_kem_modes"] = sorted(required_kem_modes - exercised_kem_modes)
         report["missing_dsa_modes"] = sorted(required_dsa_modes - exercised_dsa_modes)
+        report["missing_slh_modes"] = sorted(required_slh_modes - exercised_slh_modes)
         return report
     for attempt in range(poll_count):
         outcome = transport.request("GET", session_path + "/results", session_token)[1]
