@@ -132,6 +132,24 @@ class ECCVectorTests(unittest.TestCase):
             with self.subTest(claim=claim), self.assertRaises(ValueError):
                 registration("ECDSA", claim)
 
+    def test_ecc_same_session_hcg_requires_explicit_registration(self):
+        """ECC DRBG prerequisite may be 'same' only with registered HCG."""
+        from demo_client import registration as demo_registration
+        chosen = ("SHA2-256", "SHA2-384", "SHA2-512",
+                  "HMAC-SHA2-512", "hmacDRBG", "ECDSA")
+        caps = demo_registration(chosen, "same")[1]["algorithms"]
+        self.assertEqual([item["mode"] for item in caps if item["algorithm"] == "ECDSA"],
+                         ["keyGen", "keyVer", "sigVer"])
+        for entry in caps:
+            if entry["algorithm"] == "ECDSA":
+                self.assertEqual(entry["prereqVals"][0],
+                                 {"algorithm": "DRBG", "valValue": "same"})
+        with self.assertRaises(ValueError):
+            demo_registration(tuple(name for name in chosen if name != "hmacDRBG"),
+                              "same")
+        with self.assertRaises(ValueError):
+            registration("ECDSA", "same")
+
     def test_deterministic_ecdsa_signature_group_response(self):
         group = {"tgId": 5, "testType": "AFT", "curve": "P-384", "hashAlg": "SHA2-384",
                  "tests": [{"tcId": 1, "message": "AA"}, {"tcId": 2, "message": "BB"}]}
