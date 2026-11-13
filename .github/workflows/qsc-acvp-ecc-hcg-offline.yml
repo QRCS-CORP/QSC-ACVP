@@ -1,0 +1,108 @@
+# Native ECC HCG integration regression; no ACVTS network access.
+name: QSC ACVP ECC HCG offline qualification
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+    paths:
+      - 'Source/ACVP/ecc_client.py'
+      - 'Source/ACVP/demo_client.py'
+      - 'Source/ACVP/tests/test_ecc_vectors.py'
+      - 'Source/ACVP/tests/test_ecc_hcg_native.py'
+      - '.github/workflows/qsc-acvp-ecc-hcg-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-sequential-qualification
+  cancel-in-progress: false
+
+jobs:
+  ecc-hcg:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        with:
+          repository: QRCS-CORP/QSC
+          ref: '5d85f25866f9fa08654791265f08f43f95674a53'
+          path: dependency/QSC
+          persist-credentials: false
+
+      - name: Verify immutable QSC qualification source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C dependency/QSC rev-parse HEAD)" = "5d85f25866f9fa08654791265f08f43f95674a53"
+          echo 'PASS: verified immutable QSC ECC and HCG source'
+
+      - name: Compile full scalar ECC and HCG implementations
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -S Source/ACVP -B "$RUNNER_TEMP/qsc-ecc-hcg-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQSC_ACVP_TLS_CLASS=3 \
+            -DQSC_ACVP_ISA_PROFILE=scalar
+          grep -q '^QSC_ACVP_PROFILE_MACROS_VERIFIED:INTERNAL=1$' \
+            "$RUNNER_TEMP/qsc-ecc-hcg-build/CMakeCache.txt"
+          cmake --build "$RUNNER_TEMP/qsc-ecc-hcg-build" \
+            --target qsc_acvp_ecc qsc_acvp_drbg qsc_acvp_hash --parallel 2
+          test -s "$RUNNER_TEMP/qsc-ecc-hcg-build/libqsc_acvp_ecc.so"
+          test -s "$RUNNER_TEMP/qsc-ecc-hcg-build/libqsc_acvp_drbg.so"
+          test -s "$RUNNER_TEMP/qsc-ecc-hcg-build/libqsc_acvp_hash.so"
+          echo 'PASS: full native scalar ECC/HCG/SHA libraries'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install independent ECC reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check cryptography==46.0.4
+
+      - name: Verify native HCG and ECC interoperability against independent oracles
+        shell: bash
+        env:
+          QSC_ACVP_ECC_LIBRARY: ${{ runner.temp }}/qsc-ecc-hcg-build/libqsc_acvp_ecc.so
+          QSC_ACVP_ECC_COMPLETE: '1'
+          QSC_ACVP_DRBG_LIBRARY: ${{ runner.temp }}/qsc-ecc-hcg-build/libqsc_acvp_drbg.so
+        run: |
+          set -euo pipefail
+          python -m compileall -q Source/ACVP
+          PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
+            python -m unittest \
+              test_drbg_native.DrbgNativeTests \
+              test_demo_client.DemoClientTests \
+              test_ecc_vectors.ECCVectorTests \
+              test_ecc_vectors.ECCNativeVectorTests \
+              test_ecc_hcg_native.EccHcgNativeTests -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-ecc-hcg-native-tests.log"
+          grep -Eq '^Ran 95 tests in' "$RUNNER_TEMP/qsc-ecc-hcg-native-tests.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-ecc-hcg-native-tests.log"
+          if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-ecc-hcg-native-tests.log"; then
+            echo 'FAIL: ECC HCG source-pinned oracle regression' >&2
+            exit 1
+          fi
+          echo 'PASS: all 95 native and protocol ECC/HCG tests'
+
+      - name: Upload credential-free ECC/HCG evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-ecc-hcg-offline-qualification
+          path: ${{ runner.temp }}/qsc-ecc-hcg-native-tests.log
+          if-no-files-found: warn
+          retention-days: 14
