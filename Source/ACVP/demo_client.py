@@ -501,6 +501,9 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                     "Unsupported AES-ECB test group": "UNSUPPORTED_GROUP",
                     "Invalid AES-ECB test case": "INVALID_CASE",
                     "AES-ECB key or block length mismatch": "KEY_OR_BLOCK_LENGTH",
+                    "AES-ECB key length does not match group": "KEY_GROUP_MISMATCH",
+                    "AES-ECB MCT input must be one block": "MCT_INPUT_LENGTH",
+                    "AES-ECB AFT payload must contain complete blocks": "AFT_INPUT_LENGTH",
                     "Unsupported AES-ECB key or block length": "UNSUPPORTED_KEY_OR_BLOCK",
                     "QSC AES-ECB block operation failed": "NATIVE_AES_FAILURE",
                     "AES library was not configured": "MISSING_AES_ADAPTER"
