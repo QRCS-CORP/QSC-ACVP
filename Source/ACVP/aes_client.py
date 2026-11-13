@@ -327,9 +327,10 @@ def build_ctr_response(envelope: list, aes: QscAes) -> list:
             iv = _required_hex(case, 'iv')
             source = _required_hex(case, 'pt' if encrypt else 'ct')
             bits = case.get('payloadLen', group.get('payloadLen'))
-            # Counter test vectors may omit payloadLen and supply a long message.
-            # AFT length metadata remains mandatory and strictly checked.
-            if group['testType'] == 'CTR' and bits is None:
+            # ACVP omits payloadLen for CTR counter tests and may omit it
+            # for full-block AFT vectors. Never infer a partial AFT length.
+            if bits is None and (group['testType'] == 'CTR' or
+                                 (len(source) >= 16 and len(source) % 16 == 0)):
                 bits = len(source) * 8
             if len(key) * 8 != group['keyLen']:
                 raise ValueError('AES-CTR key length mismatch')
