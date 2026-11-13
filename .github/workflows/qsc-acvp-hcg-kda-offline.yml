@@ -99,13 +99,13 @@ jobs:
               test_demo_client.DemoClientTests \
               test_ecc_vectors.ECCVectorTests -v \
             2>&1 | tee "$RUNNER_TEMP/qsc-hcg-kda-adapter-tests.log"
-          grep -Eq '^Ran 55 tests in' "$RUNNER_TEMP/qsc-hcg-kda-adapter-tests.log"
+          grep -Eq '^Ran 56 tests in' "$RUNNER_TEMP/qsc-hcg-kda-adapter-tests.log"
           grep -Eq '^OK$' "$RUNNER_TEMP/qsc-hcg-kda-adapter-tests.log"
           if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-hcg-kda-adapter-tests.log"; then
             echo 'FAIL: Demo/ECC adapter regression suite' >&2
             exit 1
           fi
-          echo 'PASS: 55 Demo and ECC adapter tests'
+          echo 'PASS: 56 Demo and ECC adapter tests'
       - name: Test existing-session read-only inspection
         shell: bash
         run: |
