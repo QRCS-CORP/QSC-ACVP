@@ -201,6 +201,27 @@ endif()
 target_include_directories(qsc_cavp PRIVATE "${QSC_ROOT}/CAVP")
 target_link_libraries(qsc_cavp PRIVATE qsc_acvp_offline)
 
+# Isolated HCG/CSG qualification target with unchanged upstream QSC sources.
+set(QSC_ACVP_DRBG_SOURCES
+    hcg.c csg.c acp.c csp.c cpuidex.c rdp.c
+    sysutils.c async.c consoleutils.c stringutils.c
+    sha2.c sha3.c memutils.c intutils.c)
+set(QSC_ACVP_DRBG_FILES "")
+foreach(QSC_ACVP_SOURCE IN LISTS QSC_ACVP_DRBG_SOURCES)
+    list(APPEND QSC_ACVP_DRBG_FILES "${QSC_ROOT}/QSC/${QSC_ACVP_SOURCE}")
+endforeach()
+add_library(qsc_acvp_drbg SHARED
+    "${CMAKE_CURRENT_LIST_DIR}/qsc_drbg_bridge.c"
+    ${QSC_ACVP_DRBG_FILES})
+target_include_directories(qsc_acvp_drbg PRIVATE "${QSC_ROOT}/QSC")
+set_target_properties(qsc_acvp_drbg PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+if(NOT WIN32)
+    target_link_libraries(qsc_acvp_drbg PRIVATE m pthread)
+    if(NOT APPLE)
+        target_link_options(qsc_acvp_drbg PRIVATE "LINKER:-z,defs")
+    endif()
+endif()
+
 # Small shared library for the local SHA vector simulator. Do not link the
 # incomplete ECC and TLS graph into an executable or a shared-library image.
 add_library(qsc_acvp_hash SHARED
