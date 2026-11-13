@@ -183,6 +183,65 @@ class DemoClientTests(unittest.TestCase):
         self.assertEqual(sum(1 for method, path, token, body in server.calls
                              if method == "POST" and path == server.vector + "/results"), 1)
 
+    def test_aes_ecb_rejected_group_records_sanitized_stage_and_code(self):
+        """A rejected AES vector exposes only reviewed diagnostics, never secrets."""
+        class BadAesGroup(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": client.AES_ECB, "revision": "1.0",
+                             "testGroups": [{"tgId": 7, "testType": "AFT",
+                                             "direction": "encrypt", "keyLen": 192,
+                                             "tests": [{"tcId": 8, "key": "00" * 24,
+                                                        "pt": "00" * 16}]}]}]
+                return super().request(method, path, token, body)
+
+        server = BadAesGroup()
+        cipher = Oracle()
+        cipher.aes = object()
+        report = client.execute(
+            server, cipher, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            (client.AES_ECB,), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        result = report["vectors"][0]
+        self.assertEqual(result["reason"], "ValueError")
+        self.assertEqual(result["stage"], "BUILD_RESPONSE")
+        self.assertEqual(result["diagnostic_code"], "UNSUPPORTED_GROUP")
+        self.assertNotIn("private-login-token", str(report))
+        self.assertNotIn("private-session-token", str(report))
+        self.assertFalse(any(method == "POST" and path == server.vector + "/results"
+                             for method, path, token, body in server.calls))
+
+    def test_aes_ecb_unrecognized_error_never_leaks_exception_text(self):
+        """Unrecognized native adapter failures receive a fixed opaque error code."""
+        class ValidAesGroup(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": client.AES_ECB, "revision": "1.0",
+                             "testGroups": [{"tgId": 7, "testType": "AFT",
+                                             "direction": "encrypt", "keyLen": 128,
+                                             "tests": [{"tcId": 8, "key": "00" * 16,
+                                                        "pt": "00" * 16}]}]}]
+                return super().request(method, path, token, body)
+
+        class RejectingAes:
+            def ecb(self, key, block, encryption):
+                raise ValueError("sensitive-adapter-internal-text")
+
+        server = ValidAesGroup()
+        cipher = Oracle()
+        cipher.aes = RejectingAes()
+        report = client.execute(
+            server, cipher, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            (client.AES_ECB,), poll_count=1)
+        result = report["vectors"][0]
+        self.assertEqual(result["stage"], "BUILD_RESPONSE")
+        self.assertEqual(result["diagnostic_code"], "UNCLASSIFIED_VALUE_ERROR")
+        self.assertNotIn("sensitive-adapter-internal-text", str(report))
+        self.assertNotIn("private-session-token", str(report))
+
     def test_large_response_uses_server_grant_and_single_upload(self):
         """Large responses use a grant rather than the standard result endpoint."""
         class LargeServer(FakeTransport):
