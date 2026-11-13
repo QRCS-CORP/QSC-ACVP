@@ -1,0 +1,273 @@
+# NIST ACVTS Demo AES-ECB sample. Explicitly gated by an approved GitHub Environment.
+name: QSC ACVTS Demo AES-ECB 787649 diagnosis (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      qsc_ref:
+        description: 'Immutable production QSC source revision'
+        required: true
+        type: string
+        default: '43c8aa2afe9d38c3ddf9bac0107196545981ac28'
+      approve_nist_network_session:
+        description: 'I approve one read-only GET of existing session 787649 vector set 4148792'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-nist-demo-exclusive
+  cancel-in-progress: false
+
+jobs:
+  authenticated-demo-sample:
+    name: NIST Demo AES-ECB existing vector diagnosis
+    if: github.repository == 'QRCS-CORP/QSC-ACVP'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: acvts-demo
+
+    steps:
+      - name: Require explicit operator authorization and protected environment
+        shell: bash
+        env:
+          REQUEST_APPROVAL: ${{ inputs.approve_nist_network_session }}
+          DEMO_ENABLED: ${{ vars.ACVTS_DEMO_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$REQUEST_APPROVAL" = true || { echo 'FAIL: live NIST session not approved in dispatch'; exit 1; }
+          test "$DEMO_ENABLED" = true || { echo 'FAIL: protected acvts-demo environment not enabled'; exit 1; }
+          echo 'PASS: explicit operator and environment approval'
+
+      - name: Checkout approved QSC qualification adapter
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Checkout immutable QSC dependency read-only
+        uses: actions/checkout@v4
+        with:
+          repository: QRCS-CORP/QSC
+          ref: ${{ inputs.qsc_ref }}
+          path: dependency/QSC
+          persist-credentials: false
+
+      - name: Verify QSC source provenance
+        shell: bash
+        env:
+          REQUIRED_SHA: ${{ inputs.qsc_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUIRED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'FAIL: expected immutable QSC commit SHA'; exit 1; }
+          actual="$(git -C dependency/QSC rev-parse HEAD)"
+          test "$actual" = "$REQUIRED_SHA" || { echo 'FAIL: QSC source SHA mismatch'; exit 1; }
+          echo "QSC_DEPENDENCY_SHA=$actual" >> "$GITHUB_ENV"
+          echo 'PASS: pinned QSC dependency revision verified'
+
+      - name: Compile minimal scalar SHA sample backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -S Source/ACVP -B "$RUNNER_TEMP/qsc-acvts-demo-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQSC_ACVP_TLS_CLASS=3 \
+            -DQSC_ACVP_ISA_PROFILE=scalar
+          cmake --build "$RUNNER_TEMP/qsc-acvts-demo-build" --target qsc_acvp_hash qsc_acvp_aes --parallel 2
+          test -s "$RUNNER_TEMP/qsc-acvts-demo-build/libqsc_acvp_hash.so"
+          test -s "$RUNNER_TEMP/qsc-acvts-demo-build/libqsc_acvp_aes.so"
+          echo 'PASS: source-pinned scalar hash and AES adapters'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify AES-ECB QSC FIPS-197 known-answer vectors offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path("Source/ACVP").resolve()))
+          from demo_client import registration
+          from aes_client import QscAes, ECB_ALGORITHM
+
+          library = Path(os.environ["RUNNER_TEMP"]) / "qsc-acvts-demo-build/libqsc_acvp_aes.so"
+          aes = QscAes(library)
+          plaintext = bytes.fromhex("00112233445566778899aabbccddeeff")
+          key128 = bytes.fromhex("000102030405060708090a0b0c0d0e0f")
+          key256 = bytes.fromhex(
+              "000102030405060708090a0b0c0d0e0f"
+              "101112131415161718191a1b1c1d1e1f")
+          cases = (
+              (key128, bytes.fromhex("69c4e0d86a7b0430d8cdb78070b4c55a")),
+              (key256, bytes.fromhex("8ea2b7ca516745bfeafc49904b496089"))
+          )
+          for key, ciphertext in cases:
+              if aes.ecb(key, plaintext, True) != ciphertext:
+                  raise SystemExit("FAIL: pinned QSC AES-ECB encryption KAT")
+              if aes.ecb(key, ciphertext, False) != plaintext:
+                  raise SystemExit("FAIL: pinned QSC AES-ECB decryption KAT")
+
+          selection = registration((ECB_ALGORITHM,))
+          if (len(selection) != 2 or selection[1].get("isSample") is not True or
+                  [item.get("algorithm") for item in selection[1].get("algorithms", [])] !=
+                  [ECB_ALGORITHM]):
+              raise SystemExit("FAIL: AES-ECB sample registration")
+          print("PASS: AES-128/256 ECB encryption/decryption KAT and sample registration")
+          PY
+
+      - name: Materialize protected NIST mTLS and TOTP credentials
+        shell: bash
+        env:
+          NIST_CERT_B64: ${{ secrets.ACVTS_DEMO_CERT_B64 }}
+          NIST_KEY_B64: ${{ secrets.ACVTS_DEMO_KEY_B64 }}
+          NIST_TOTP_SEED_B64: ${{ secrets.ACVTS_DEMO_TOTP_B64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          test -n "$NIST_CERT_B64" || { echo 'FAIL: missing NIST certificate secret'; exit 1; }
+          test -n "$NIST_KEY_B64" || { echo 'FAIL: missing NIST private-key secret'; exit 1; }
+          test -n "$NIST_TOTP_SEED_B64" || { echo 'FAIL: missing NIST TOTP seed secret'; exit 1; }
+          printf '%s' "$NIST_CERT_B64" | base64 --decode > "$RUNNER_TEMP/acvts-demo-cert.pem"
+          printf '%s' "$NIST_KEY_B64" | base64 --decode > "$RUNNER_TEMP/acvts-demo-key.pem"
+          openssl x509 -noout -in "$RUNNER_TEMP/acvts-demo-cert.pem" >/dev/null
+          openssl pkey -noout -in "$RUNNER_TEMP/acvts-demo-key.pem" >/dev/null
+          cert_key="$(openssl x509 -in "$RUNNER_TEMP/acvts-demo-cert.pem" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')"
+          private_key="$(openssl pkey -in "$RUNNER_TEMP/acvts-demo-key.pem" -pubout -outform DER | sha256sum | awk '{print $1}')"
+          test "$cert_key" = "$private_key" || { echo 'FAIL: NIST mTLS certificate and private key do not match'; exit 1; }
+          echo 'PASS: NIST identity material loaded without disclosing credentials'
+
+      - name: Inspect existing AES-ECB vector once and test offline parsing
+        shell: bash
+        env:
+          ACVP_TOTP_SEED: ${{ secrets.ACVTS_DEMO_TOTP_B64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          python - <<'PY'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          import time
+
+          sys.path.insert(0, str(Path("Source/ACVP").resolve()))
+          from demo_client import DEMO_API, DemoTransport, totp
+          from aes_client import QscAes, build_ecb_response
+
+          root = Path(os.environ["RUNNER_TEMP"])
+          out = root / "qsc-acvp-aes-ecb-787649-readonly"
+          out.mkdir(mode=0o700, parents=True, exist_ok=True)
+          report = {
+              "type": "ACVTS_DEMO_READ_ONLY_EXISTING_AES_ECB_VECTOR_DIAGNOSIS",
+              "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "session": "787649",
+              "vector_set": "4148792",
+              "network": "LOGIN_ONCE_GET_EXISTING_VECTOR_ONCE_NO_NEW_SESSION_NO_SUBMISSION",
+              "status": "UNAVAILABLE",
+              "groups": []
+          }
+          allowed = {
+              "Invalid AES-ECB vector set",
+              "Unsupported AES-ECB test group",
+              "Invalid AES-ECB test case",
+              "AES-ECB key or block length mismatch",
+              "Unsupported AES-ECB key or block length",
+              "QSC AES-ECB block operation failed",
+              "Missing or malformed key",
+              "Missing or malformed pt",
+              "Missing or malformed ct",
+              "Missing or malformed plainText",
+              "Missing or malformed cipherText",
+              "Invalid hex for key",
+              "Invalid hex for pt",
+              "Invalid hex for ct",
+              "Invalid hex for plainText",
+              "Invalid hex for cipherText"
+          }
+          try:
+              transport = DemoTransport(root / "acvts-demo-cert.pem",
+                                        root / "acvts-demo-key.pem")
+              login = transport.request("POST", DEMO_API + "/login", body=[
+                  {"acvVersion": "1.0"},
+                  {"password": totp(os.environ["ACVP_TOTP_SEED"], time.time())}])
+              token = login[1]["accessToken"]
+              url = DEMO_API + "/testSessions/787649/vectorSets/4148792"
+              vector = transport.request("GET", url, token)
+              body = vector[1]
+              if body.get("retry") is not None:
+                  report["status"] = "SERVER_VECTOR_NOT_READY"
+              elif (body.get("vsId") != 4148792 or
+                    body.get("algorithm") != "ACVP-AES-ECB" or
+                    not isinstance(body.get("testGroups"), list)):
+                  report["status"] = "UNEXPECTED_VECTOR_ENVELOPE"
+              else:
+                  adapter = QscAes(root / "qsc-acvts-demo-build/libqsc_acvp_aes.so")
+                  report["status"] = "ADAPTER_ACCEPTED"
+                  for index, group in enumerate(body["testGroups"]):
+                      if not isinstance(group, dict):
+                          report["status"] = "INVALID_GROUP_SHAPE"
+                          break
+                      cases = group.get("tests")
+                      first = cases[0] if isinstance(cases, list) and cases else {}
+                      item = {
+                          "index": index,
+                          "tgId": group.get("tgId"),
+                          "testType": group.get("testType"),
+                          "direction": group.get("direction"),
+                          "keyLength": group.get("keyLen", group.get("keylen")),
+                          "testCount": len(cases) if isinstance(cases, list) else None,
+                          "groupFields": sorted(group.keys()),
+                          "caseFields": sorted(first.keys()) if isinstance(first, dict) else [],
+                          "status": "NOT_RUN"
+                      }
+                      report["groups"].append(item)
+                      try:
+                          request = [vector[0], {**body, "testGroups": [group]}]
+                          build_ecb_response(request, adapter)
+                          item["status"] = "OFFLINE_PARSED"
+                      except (ValueError, KeyError, TypeError) as exc:
+                          item["status"] = "REJECTED"
+                          label = str(exc)
+                          item["error"] = label if label in allowed else "OTHER_ADAPTER_INPUT_ERROR"
+                          item["errorType"] = type(exc).__name__
+                          report["status"] = "ADAPTER_REJECTED"
+                          break
+          except (Exception) as exc:
+              report["status"] = "ACCESS_OR_PROTOCOL_ERROR"
+              report["errorType"] = type(exc).__name__
+          (out / "aes-ecb-readonly-diagnostic.json").write_text(
+              json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print("AES-ECB session 787649 read-only diagnostic:", report["status"])
+          for item in report["groups"]:
+              if item["status"] == "REJECTED":
+                  print("First rejected group:", item["index"], item["testType"],
+                        item["error"])
+          sys.exit(0 if report["status"] in ("ADAPTER_ACCEPTED", "ADAPTER_REJECTED") else 1)
+          PY
+
+      - name: Delete ephemeral NIST certificate and private key
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -f "$RUNNER_TEMP/acvts-demo-cert.pem" "$RUNNER_TEMP/acvts-demo-key.pem"
+
+      - name: Upload sanitized Demo verdict only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-acvp-aes-ecb-787649-readonly-profile
+          path: ${{ runner.temp }}/qsc-acvp-aes-ecb-787649-readonly/aes-ecb-readonly-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 7
