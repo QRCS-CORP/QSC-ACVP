@@ -417,6 +417,8 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
     required_ecc_modes = {(item["algorithm"], item.get("mode"))
                           for item in capability_envelope[1]["algorithms"]
                           if item["algorithm"] in ("ECDSA", "DetECDSA", "EDDSA", "XECDH", "KAS-ECC-SSC")}
+    required_kem_modes = {item["mode"] for item in capability_envelope[1]["algorithms"]
+                          if item["algorithm"] == "ML-KEM"}
     session = transport.request("POST", DEMO_API + "/testSessions", token,
                                 capability_envelope)[1]
     session_path = check_path(session.get("url", ""))
@@ -565,6 +567,29 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                         "INVALID_HEX_" + field.upper())
                 vector_result["diagnostic_code"] = gcm_errors.get(
                     str(exc), "UNCLASSIFIED_VALUE_ERROR")
+            if vector_result["algorithm"] == "ML-KEM" and isinstance(exc, ValueError):
+                # Only fixed, reviewed adapter error labels are emitted.
+                # Never serialize key-generation seeds, private keys or URL text.
+                kem_errors = {
+                    "Invalid ACVP ML-KEM envelope": "INVALID_ENVELOPE",
+                    "Unsupported ML-KEM vector set": "UNSUPPORTED_VECTOR",
+                    "Invalid ML-KEM test group": "INVALID_GROUP",
+                    "Unsupported ML-KEM keyGen test group": "UNSUPPORTED_KEYGEN_GROUP",
+                    "Unsupported ML-KEM KEM test group": "UNSUPPORTED_KEM_GROUP",
+                    "Invalid ML-KEM case identifier": "INVALID_CASE",
+                    "ML-KEM keyGen seed length must be 32 bytes": "KEYGEN_SEED_SIZE",
+                    "ML-KEM encapsulation input size mismatch": "ENCAPS_INPUT_SIZE",
+                    "ML-KEM decapsulation input size mismatch": "DECAPS_INPUT_SIZE",
+                    "QSC rejected the supplied ML-KEM decapsulation key": "NATIVE_KEY_REJECTED",
+                    "ML-KEM library was not configured": "MISSING_KEM_ADAPTER"
+                }
+                for field in ("d", "z", "ek", "dk", "m", "c"):
+                    kem_errors["Invalid ML-KEM " + field + " length"] = (
+                        "INVALID_" + field.upper() + "_LENGTH")
+                    kem_errors["Invalid ML-KEM " + field + " encoding"] = (
+                        "INVALID_" + field.upper() + "_HEX")
+                vector_result["diagnostic_code"] = kem_errors.get(
+                    str(exc), "UNCLASSIFIED_VALUE_ERROR")
     if any(item["status"] == "FAIL" for item in report["vectors"]):
         report["status"] = "FAIL_OR_UNSUPPORTED_VECTOR"
         return report
@@ -574,12 +599,16 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                      if item["status"] == "SUBMITTED" and
                      item["algorithm"] in ("ECDSA", "DetECDSA", "EDDSA", "XECDH", "KAS-ECC-SSC")}
     missing = set(selected) - executed
-    if missing or required_ecc_modes - exercised_ecc:
+    exercised_kem_modes = {item.get("mode") for item in report["vectors"]
+                          if item["status"] == "SUBMITTED" and item["algorithm"] == "ML-KEM"}
+    if (missing or required_ecc_modes - exercised_ecc or
+            required_kem_modes - exercised_kem_modes):
         report["status"] = "FAIL_INCOMPLETE_ALGORITHM_COVERAGE"
         report["missing_algorithms"] = sorted(missing)
         report["missing_ecc_modes"] = sorted(
             f"{name}/{mode if mode is not None else 'SSC'}"
             for name, mode in required_ecc_modes - exercised_ecc)
+        report["missing_kem_modes"] = sorted(required_kem_modes - exercised_kem_modes)
         return report
     for attempt in range(poll_count):
         outcome = transport.request("GET", session_path + "/results", session_token)[1]
