@@ -128,7 +128,7 @@ jobs:
           PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
             python -m unittest test_drbg_native.DrbgNativeTests -v \
             2>&1 | tee "$RUNNER_TEMP/hcg-native-preflight.log"
-          grep -Eq '^Ran 9 tests in' "$RUNNER_TEMP/hcg-native-preflight.log"
+          grep -Eq '^Ran 16 tests in' "$RUNNER_TEMP/hcg-native-preflight.log"
           grep -Eq '^OK$' "$RUNNER_TEMP/hcg-native-preflight.log"
           if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/hcg-native-preflight.log"; then
             echo 'FAIL: HCG DRBG native preflight incomplete' >&2
