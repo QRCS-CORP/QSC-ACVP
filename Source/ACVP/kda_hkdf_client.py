@@ -96,24 +96,39 @@ def registration(drbg_validation: str, allow_same_session: bool = False) -> list
     return capabilities
 
 
-def _hex(value, maximum=8192) -> bytes:
-    """Decode a bounded, byte-aligned hex field, failing on malformed input."""
-    if not isinstance(value, str) or len(value) > maximum * 2 or len(value) % 2:
-        raise ValueError("Invalid ACVP hex field")
+class KdaHexError(ValueError):
+    """Report only the field identity and structural error category of hex inputs."""
+
+    def __init__(self, field: str, issue: str):
+        super().__init__("Invalid ACVP hex field")
+        self.field = field
+        self.issue = issue
+
+
+def _hex(value, maximum=8192, field="value") -> bytes:
+    """Decode a bounded hex field with non-sensitive diagnostics."""
+    if value is None:
+        raise KdaHexError(field, "MISSING")
+    if not isinstance(value, str):
+        raise KdaHexError(field, "TYPE")
+    if len(value) > maximum * 2:
+        raise KdaHexError(field, "TOO_LONG")
+    if len(value) % 2:
+        raise KdaHexError(field, "ODD_LENGTH")
     try:
         return bytes.fromhex(value)
     except ValueError as exc:
-        raise ValueError("Invalid ACVP hex field") from exc
+        raise KdaHexError(field, "ENCODING") from exc
 
 
-def _party(party) -> bytes:
+def _party(party, label) -> bytes:
     """Concatenate required party ID with optional ephemeral data."""
     if not isinstance(party, dict) or "partyId" not in party:
         raise ValueError("Missing fixed-info party identifier")
-    identity = _hex(party["partyId"], 512)
+    identity = _hex(party["partyId"], 512, label + "_PARTY_ID")
     if not identity:
         raise ValueError("Empty fixed-info party identifier")
-    return identity + (_hex(party["ephemeralData"], 1024)
+    return identity + (_hex(party["ephemeralData"], 1024, label + "_EPHEMERAL")
                        if "ephemeralData" in party else b"")
 
 
@@ -162,20 +177,20 @@ def response(envelope: list, qsc) -> list:
                     parameters.get("l") != bits or
                     "t" in parameters):
                 raise ValueError("Unsupported KDA-HKDF case parameters")
-            secret = _hex(parameters.get("z"))
-            salt = _hex(parameters.get("salt"))
+            secret = _hex(parameters.get("z"), field="Z")
+            salt = _hex(parameters.get("salt"), field="SALT")
             if len(secret) * 8 != z_bits or len(salt) * 8 != salt_bits:
                 raise ValueError("KDA-HKDF input bit length mismatch")
             if configuration["saltMethod"] == "default" and any(salt):
                 raise ValueError("Default salt must be zero-filled")
-            info = (_party(case.get("fixedInfoPartyU")) +
-                    _party(case.get("fixedInfoPartyV")) + bits.to_bytes(4, "big"))
+            info = (_party(case.get("fixedInfoPartyU"), "U") +
+                    _party(case.get("fixedInfoPartyV"), "V") + bits.to_bytes(4, "big"))
             derived = qsc.hkdf(configuration["hmacAlg"], secret, salt, info, bits // 8)
             if len(derived) != bits // 8:
                 raise ValueError("Invalid HKDF output length")
             item = {"tcId": case["tcId"]}
             if group["testType"] == "VAL":
-                expected = _hex(case.get("dkm"), 256)
+                expected = _hex(case.get("dkm"), 256, "DKM")
                 if len(expected) != len(derived):
                     raise ValueError("VAL expected DKM size mismatch")
                 item["testPassed"] = hmac.compare_digest(expected, derived)
