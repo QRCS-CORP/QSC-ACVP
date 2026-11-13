@@ -251,6 +251,67 @@ class ECCVectorTests(unittest.TestCase):
                 self.assertEqual([t["testPassed"] for t in reply[1]["testGroups"][0]["tests"]],
                                  [True, False])
 
+    def test_ecdsa_keyver_overwidth_negative_vectors_return_false(self):
+        """NIST P-256 and synthetic P-521 overwidth keys cannot abort keyVer."""
+        for curve, qx, qy in (
+                ("P-256",
+                 "0153E4349D53D820D44172A0424D82D8A2570A60C9A81819C974FB79A49786B967",
+                 "5B8BA4EDFC093EAE4CBB88E09C88909B57066B9C35F4FD8A274C52522322FF52"),
+                ("P-521",
+                 "03" + "A1" * 66,
+                 "0138942DDC06B6482AFD2593BE835DA7FBAA6FEF7C8973BF45003348290761585F0E1BCCE52DD729D04358C13EF46F3009E3A1D2A9715F141AF5CABF7455C05F67E2")):
+            with self.subTest(curve=curve):
+                class NativeNotCalled:
+                    def ecdsa_keyver(self, curve, public):
+                        raise AssertionError("FAIL: overwidth key must not reach native ECC")
+                group = {"tgId": 1, "testType": "AFT", "curve": curve,
+                         "tests": [{"tcId": 1, "qx": qx, "qy": qy}]}
+                answer = build_ecc_response(
+                    vector("ECDSA", "keyVer", "FIPS186-5", group), NativeNotCalled())
+                self.assertEqual(answer[1]["testGroups"][0]["tests"],
+                                 [{"tcId": 1, "testPassed": False}],
+                                 f"FAIL: ECDSA keyVer overwidth coordinate for {curve}")
+
+    def test_ecdsa_keyver_valid_width_and_zero_pad_remain_accepted(self):
+        """Strict-width keys and one leading zero byte still reach QSC verification."""
+        for curve, width in (("P-256", 32), ("P-384", 48), ("P-521", 66)):
+            with self.subTest(curve=curve):
+                class CheckedEcc:
+                    def __init__(self):
+                        self.calls = []
+
+                    def ecdsa_keyver(self, curve, public):
+                        self.calls.append((curve, public))
+                        return True
+                native = CheckedEcc()
+                group = {"tgId": 1, "testType": "AFT", "curve": curve,
+                         "tests": [
+                             {"tcId": 1, "qx": "01" * width, "qy": "02" * width},
+                             {"tcId": 2, "qx": "00" + "01" * width,
+                              "qy": "00" + "02" * width},
+                             {"tcId": 3, "qx": "01" * (width + 1),
+                              "qy": "02" * width}]}
+                answer = build_ecc_response(
+                    vector("ECDSA", "keyVer", "FIPS186-5", group), native)
+                self.assertEqual([x["testPassed"] for x in
+                                  answer[1]["testGroups"][0]["tests"]],
+                                 [True, True, False],
+                                 f"FAIL: ECDSA keyVer encoding boundaries for {curve}")
+                self.assertEqual(len(native.calls), 2,
+                                 f"FAIL: invalid overwidth key reached QSC for {curve}")
+                self.assertEqual(native.calls[0][1], native.calls[1][1],
+                                 f"FAIL: single leading zero not normalized for {curve}")
+
+    def test_ecdsa_keyver_malformed_fields_still_fail_closed(self):
+        """A missing or nonhex ACVP field must not become an ordinary negative key."""
+        for invalid in (None, "", "G0", "0", 123):
+            with self.subTest(invalid=invalid):
+                group = {"tgId": 1, "testType": "AFT", "curve": "P-256",
+                         "tests": [{"tcId": 1, "qx": invalid, "qy": "02" * 32}]}
+                with self.assertRaises(ValueError):
+                    build_ecc_response(
+                        vector("ECDSA", "keyVer", "FIPS186-5", group), MockEcc())
+
     def test_eddsa_keygen_and_keyver_json_both_curves(self):
         for curve, width in (("ED-25519", 32), ("ED-448", 57)):
             with self.subTest(curve=curve):
@@ -336,6 +397,20 @@ class ECCNativeVectorTests(unittest.TestCase):
         self.assertEqual(public, point.x.to_bytes(48, "big") + point.y.to_bytes(48, "big"))
         self.assertTrue(self.ecc.ecdsa_keyver("P-384", public))
         self.assertFalse(self.ecc.ecdsa_keyver("P-384", bytes(96)))
+
+    def test_qsc_p521_nist_keyver_out_of_range_coordinate_is_negative(self):
+        """A P-521 field-width coordinate above p must fail QSC point validation."""
+        group = {"tgId": 1, "testType": "AFT", "curve": "P-521",
+                 "tests": [{"tcId": 11,
+                            "qx": ("035CB1098807803F8BFA7EB3A70E43097F6FECAFC39C77A7E53029BA189F37C9"
+                                   "F400034693198630DB207B98DFDEDBA248FB02D88FC395A2CF5867BAC50E86FE0EB2"),
+                            "qy": ("0138942DDC06B6482AFD2593BE835DA7FBAA6FEF7C8973BF45003348290761585"
+                                   "F0E1BCCE52DD729D04358C13EF46F3009E3A1D2A9715F141AF5CABF7455C05F67E2")}]}
+        actual = build_ecc_response(
+            vector("ECDSA", "keyVer", "FIPS186-5", group), self.ecc)
+        self.assertEqual(actual[1]["testGroups"][0]["tests"],
+                         [{"tcId": 11, "testPassed": False}],
+                         "FAIL: QSC must reject P-521 public coordinate outside field")
 
     def test_qsc_eddsa_keygen_and_keyver_native_curves(self):
         for curve, parser in (("ED-25519", ed25519.Ed25519PrivateKey),

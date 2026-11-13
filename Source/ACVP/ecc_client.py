@@ -100,6 +100,24 @@ def fixed_integer(value, size):
     return raw.rjust(size, b"\x00")
 
 
+def keyver_coordinate(value, size):
+    """Decode a keyVer coordinate, treating valid-hex out-of-range lengths as invalid.
+
+    ACVP deliberately supplies negative public-key vectors whose coordinates
+    exceed the curve width. Such keys produce testPassed=False rather than
+    aborting the complete vector set. Malformed JSON/hex fields still fail.
+    """
+    if (not isinstance(value, str) or not value or
+            len(value) > 2 * MAX_MESSAGE or HEX.fullmatch(value) is None):
+        raise ValueError("Malformed ECDSA keyVer coordinate")
+    if len(value) > 2 * (size + 1):
+        return None
+    try:
+        return fixed_integer(value, size)
+    except ValueError:
+        return None
+
+
 def memory(value):
     """Create distinct caller-owned C memory for one input."""
     return c.create_string_buffer(value, max(1, len(value)))
@@ -545,8 +563,12 @@ def build_ecc_response(envelope, ecc):
                     result.update({"d": private.hex().upper(), "qx": public[:size].hex().upper(),
                                    "qy": public[size:].hex().upper()})
                 elif mode == "keyVer":
-                    public = fixed_integer(item.get("qx"), size) + fixed_integer(item.get("qy"), size)
-                    result["testPassed"] = bool(ecc.ecdsa_keyver(curve, public))
+                    qx = keyver_coordinate(item.get("qx"), size)
+                    qy = keyver_coordinate(item.get("qy"), size)
+                    if qx is None or qy is None:
+                        result["testPassed"] = False
+                    else:
+                        result["testPassed"] = bool(ecc.ecdsa_keyver(curve, qx + qy))
                 else:
                     message = decode_hex(item.get("message"))
                     result["testPassed"] = bool(ecc.ecdsa_verify(curve, message,
