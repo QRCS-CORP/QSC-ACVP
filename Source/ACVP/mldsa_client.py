@@ -89,7 +89,7 @@ class QscMlDsa:
     def sign(self, parameter: str, sk: bytes, message: bytes, context: bytes) -> bytes:
         """Generate an external-pure deterministic detached ML-DSA signature."""
         _, _, secret_len, signature_len = PARAMETERS[parameter]
-        if len(sk) != secret_len or len(message) > 8192 or len(context) > 255:
+        if len(sk) != secret_len or not 1 <= len(message) <= 8192 or len(context) > 255:
             raise ValueError("Unsupported ML-DSA signing input length")
         output = c.create_string_buffer(signature_len + len(message))
         result_len = c.c_size_t(0)
@@ -106,7 +106,7 @@ class QscMlDsa:
         """Verify an external-pure detached signature using QSC's attached interface."""
         _, public_len, _, signature_len = PARAMETERS[parameter]
         if (len(pk) != public_len or
-                len(message) > 8192 or len(context) > 255):
+                not 1 <= len(message) <= 8192 or len(context) > 255):
             raise ValueError("Unsupported ML-DSA verification input length")
         if len(signature) != signature_len:
             return False
@@ -158,6 +158,8 @@ def build_mldsa_response(envelope: list, qsc: QscMlDsa) -> list:
             else:
                 message = _bytes(case, "message")
                 context = _bytes(case, "context", maximum=255)
+                if not 1 <= len(message) <= 8192:
+                    raise ValueError("ML-DSA message outside registered length")
                 if mode == "sigGen":
                     signature = qsc.sign(parameter, _bytes(case, "sk", private_len),
                                          message, context)
