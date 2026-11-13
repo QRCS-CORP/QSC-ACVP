@@ -303,6 +303,71 @@ class DemoClientTests(unittest.TestCase):
         self.assertNotIn("sensitive-native-internal-text", str(report))
         self.assertNotIn("private-session-token", str(report))
 
+    def test_aes_gcm_rejected_group_has_sanitized_diagnostic_code(self):
+        """Bad GCM AFT length must fail without disclosing test material."""
+        class BadGcmVector(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": client.AES_GCM, "revision": "1.0",
+                             "testGroups": [{"tgId": 7, "testType": "AFT",
+                                             "direction": "encrypt", "keyLen": 128,
+                                             "ivGen": "external", "ivLen": 96,
+                                             "tagLen": 128, "payloadLen": 256, "aadLen": 0,
+                                             "tests": [{"tcId": 8, "key": "00" * 16,
+                                                        "iv": "00" * 12, "aad": "",
+                                                        "pt": "00" * 16}]}]}]
+                return super().request(method, path, token, body)
+
+        server = BadGcmVector()
+        cipher = Oracle()
+        cipher.aes = object()
+        report = client.execute(
+            server, cipher, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            (client.AES_ECB, client.AES_GCM), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        result = report["vectors"][0]
+        self.assertEqual(result["stage"], "BUILD_RESPONSE")
+        self.assertEqual(result["reason"], "ValueError")
+        self.assertEqual(result["diagnostic_code"], "PAYLOAD_LENGTH")
+        self.assertNotIn("private-login-token", str(report))
+        self.assertNotIn("private-session-token", str(report))
+        self.assertFalse(any(method == "POST" and path == server.vector + "/results"
+                             for method, path, token, body in server.calls))
+
+    def test_aes_gcm_unknown_error_text_remains_private(self):
+        """Unknown native AES-GCM errors are represented by an opaque code."""
+        class ValidGcmVector(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": client.AES_GCM, "revision": "1.0",
+                             "testGroups": [{"tgId": 7, "testType": "AFT",
+                                             "direction": "encrypt", "keyLen": 128,
+                                             "ivGen": "external", "ivLen": 96,
+                                             "tagLen": 128, "payloadLen": 128, "aadLen": 0,
+                                             "tests": [{"tcId": 8, "key": "00" * 16,
+                                                        "iv": "00" * 12, "aad": "",
+                                                        "pt": "00" * 16}]}]}]
+                return super().request(method, path, token, body)
+
+        class RejectingGcm:
+            def transform(self, key, iv, aad, payload, tag=None):
+                raise ValueError("sensitive-gcm-internal-text")
+
+        server = ValidGcmVector()
+        cipher = Oracle()
+        cipher.aes = RejectingGcm()
+        report = client.execute(
+            server, cipher, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            (client.AES_ECB, client.AES_GCM), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        result = report["vectors"][0]
+        self.assertEqual(result["stage"], "BUILD_RESPONSE")
+        self.assertEqual(result["diagnostic_code"], "UNCLASSIFIED_VALUE_ERROR")
+        self.assertNotIn("sensitive-gcm-internal-text", str(report))
+        self.assertNotIn("private-session-token", str(report))
+
     def test_large_response_uses_server_grant_and_single_upload(self):
         """Large responses use a grant rather than the standard result endpoint."""
         class LargeServer(FakeTransport):
