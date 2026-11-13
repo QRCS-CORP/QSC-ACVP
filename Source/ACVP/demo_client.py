@@ -446,6 +446,7 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
     for path in urls:
         vector_result = {"vector_set": None, "algorithm": "UNKNOWN", "status": "FAIL"}
         report["vectors"].append(vector_result)
+        stage = "FETCH_VECTOR"
         try:
             validated = check_path(path)
             if not validated.startswith(session_path + "/vectorSets/") or validated.endswith("/results"):
@@ -471,9 +472,11 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                 vector_result["algorithm"] = KDA_HKDF
             if vector_result["algorithm"] not in selected:
                 raise ValueError("Unregistered or unsupported algorithm in vector set")
+            stage = "BUILD_RESPONSE"
             response = build_response(request, qsc)
             response_size = len(json.dumps(response).encode("utf-8"))
             use_large = large_required and standard_limit >= 0 and response_size > standard_limit
+            stage = "SUBMIT_RESPONSE"
             if use_large:
                 grant = transport.request("POST", DEMO_API + "/large", session_token, [
                     {"acvVersion": "1.0"},
@@ -489,6 +492,26 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
             # Protocol/transport errors are deliberately not recorded verbatim: servers
             # may include URLs, bearer tokens or request bodies in their error strings.
             vector_result["reason"] = type(exc).__name__
+            vector_result["stage"] = stage
+            if vector_result["algorithm"] == AES_ECB and isinstance(exc, ValueError):
+                # Only fixed, reviewed adapter error labels may enter evidence;
+                # arbitrary server or exception text must never be serialized.
+                aes_ecb_errors = {
+                    "Invalid AES-ECB vector set": "INVALID_VECTOR",
+                    "Unsupported AES-ECB test group": "UNSUPPORTED_GROUP",
+                    "Invalid AES-ECB test case": "INVALID_CASE",
+                    "AES-ECB key or block length mismatch": "KEY_OR_BLOCK_LENGTH",
+                    "Unsupported AES-ECB key or block length": "UNSUPPORTED_KEY_OR_BLOCK",
+                    "QSC AES-ECB block operation failed": "NATIVE_AES_FAILURE",
+                    "AES library was not configured": "MISSING_AES_ADAPTER"
+                }
+                for field in ("key", "pt", "ct", "plainText", "cipherText"):
+                    aes_ecb_errors["Missing or malformed " + field] = (
+                        "MALFORMED_" + field.upper())
+                    aes_ecb_errors["Invalid hex for " + field] = (
+                        "INVALID_HEX_" + field.upper())
+                vector_result["diagnostic_code"] = aes_ecb_errors.get(
+                    str(exc), "UNCLASSIFIED_VALUE_ERROR")
     if any(item["status"] == "FAIL" for item in report["vectors"]):
         report["status"] = "FAIL_OR_UNSUPPORTED_VECTOR"
         return report
