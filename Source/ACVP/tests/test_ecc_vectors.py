@@ -127,7 +127,8 @@ class ECCVectorTests(unittest.TestCase):
                          ["P-256", "P-384", "P-521"])
 
     def test_ecc_registration_requires_real_drbg_prerequisite(self):
-        for claim in (None, "", "same"):
+        for claim in (None, "", "same", "pending", "not-validated",
+                      "HCG", "CSG", "qsc-hcg", "QSC-CSG"):
             with self.subTest(claim=claim), self.assertRaises(ValueError):
                 registration("ECDSA", claim)
 
