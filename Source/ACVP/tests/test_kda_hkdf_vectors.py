@@ -235,7 +235,7 @@ class KdaHkdfSchemaTests(unittest.TestCase):
         selected = ("SHA2-256", "SHA2-384", "SHA2-512",
                     "HMAC-SHA2-256", "HMAC-SHA2-384", "HMAC-SHA2-512",
                     SELECTION)
-        report = execute(server, object(),
+        report = execute(server, type("Engine", (), {"kdf": object()})(),
                          "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
                          selected, poll_count=1, drbg_validation="ACVP-123")
         self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
