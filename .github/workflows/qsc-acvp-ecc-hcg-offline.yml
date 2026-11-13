@@ -14,6 +14,7 @@ on:
       - 'Source/ACVP/tests/test_ecc_vectors.py'
       - 'Source/ACVP/tests/test_ecc_hcg_native.py'
       - '.github/workflows/qsc-acvp-ecc-hcg-offline.yml'
+      - '.github/workflows/qsc-acvp-demo-ecdsa-hcg.yml'
   workflow_dispatch:
 
 permissions:
@@ -45,6 +46,13 @@ jobs:
           set -euo pipefail
           test "$(git -C dependency/QSC rev-parse HEAD)" = "5d85f25866f9fa08654791265f08f43f95674a53"
           echo 'PASS: verified immutable QSC ECC and HCG source'
+
+      - name: Validate protected ECDSA NIST workflow YAML
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -e 'require "yaml"; YAML.load_file(ARGV.fetch(0)); puts "PASS: ECDSA NIST workflow syntax"' \
+            .github/workflows/qsc-acvp-demo-ecdsa-hcg.yml
 
       - name: Compile full scalar ECC and HCG implementations
         shell: bash
