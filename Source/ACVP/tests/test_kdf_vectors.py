@@ -127,6 +127,69 @@ class KeyDerivationSchemaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             pbkdf_response(vector([g]), None)
 
+    def test_pbkdf_registration_boundary_vectors(self):
+        """Exercise the advertised password, salt, key and iteration ranges."""
+        class Oracle:
+            def pbkdf2(self, name, password, salt, iterations, length):
+                return hashlib.pbkdf2_hmac(name.replace("SHA2-", "sha"),
+                                          password, salt, iterations, length)
+
+        for name in ("SHA2-256", "SHA2-384", "SHA2-512"):
+            for plen, slen, klen, count in ((8, 16, 112, 10),
+                                            (128, 512, 512, 1000)):
+                sample = {"tcId": 7, "password": "p" * plen,
+                          "salt": "ab" * slen, "keyLen": klen,
+                          "iterationCount": count}
+                returned = pbkdf_response(vector([group(name, [sample])]), Oracle())
+                expected = hashlib.pbkdf2_hmac(
+                    name.replace("SHA2-", "sha"), b"p" * plen, bytes.fromhex("ab" * slen),
+                    count, klen // 8)
+                self.assertEqual(returned[1]["testGroups"][0]["tests"][0],
+                                 {"tcId": 7, "derivedKey": expected.hex().upper()})
+
+    def test_pbkdf_rejects_nonadvertised_domains_before_native(self):
+        """Out-of-domain cases never reach the native derivation function."""
+        class ForbiddenOracle:
+            def pbkdf2(self, *args):
+                raise AssertionError("Invalid vector reached native PBKDF2")
+
+        for invalid in ({"password": "p" * 7}, {"password": "p" * 129},
+                        {"salt": "ab" * 15}, {"salt": "ab" * 513},
+                        {"iterationCount": 9}, {"iterationCount": 1001},
+                        {"iterationCount": True}, {"iterationCount": "10"}):
+            sample = group()
+            sample["tests"][0].update(invalid)
+            with self.subTest(invalid=tuple(invalid)), self.assertRaises(ValueError):
+                pbkdf_response(vector([sample]), ForbiddenOracle())
+
+    def test_pbkdf_multiple_hash_groups_and_case_ids(self):
+        """Maintain response order and independence across registered HMACs."""
+        class Oracle:
+            def pbkdf2(self, name, password, salt, iterations, length):
+                return hashlib.pbkdf2_hmac(name.replace("SHA2-", "sha"),
+                                          password, salt, iterations, length)
+
+        groups = []
+        for number, name in enumerate(("SHA2-256", "SHA2-384", "SHA2-512"), 1):
+            sample = group(name, [
+                {"tcId": 11, "password": "password1", "salt": "ab" * 16,
+                 "keyLen": 112, "iterationCount": 10},
+                {"tcId": 12, "password": "password2", "salt": "cd" * 24,
+                 "keyLen": 512, "iterationCount": 11}])
+            sample["tgId"] = number
+            groups.append(sample)
+        returned = pbkdf_response(vector(groups), Oracle())
+        self.assertEqual([item["tgId"] for item in returned[1]["testGroups"]],
+                         [1, 2, 3])
+        for group_input, group_output in zip(groups, returned[1]["testGroups"]):
+            self.assertEqual([case["tcId"] for case in group_output["tests"]], [11, 12])
+            for case, answer in zip(group_input["tests"], group_output["tests"]):
+                actual = hashlib.pbkdf2_hmac(
+                    group_input["hmacAlg"].replace("SHA2-", "sha"),
+                    case["password"].encode(), bytes.fromhex(case["salt"]),
+                    case["iterationCount"], case["keyLen"] // 8)
+                self.assertEqual(answer["derivedKey"], actual.hex().upper())
+
     def test_pbkdf_mock_authenticated_demo_session_and_token_redaction(self):
         from demo_client import execute
         from test_demo_client import FakeTransport
