@@ -66,6 +66,7 @@ ALGORITHM = "KDA"
 SELECTION = "KDA-HKDF"
 REVISIONS = ("Sp800-56Cr1", "Sp800-56Cr2")
 FIXED_INFO = "uPartyInfo||vPartyInfo||l"
+MAX_EPHEMERAL_BYTES = 65536  # Bound one ACVP fixed-info component to 64 KiB.
 
 
 def registration(drbg_validation: str, allow_same_session: bool = False) -> list[dict]:
@@ -129,7 +130,7 @@ def _party(party, label) -> bytes:
     if not identity:
         raise ValueError("Empty fixed-info party identifier")
     ephemeral = party.get("ephemeralData")
-    return identity + (_hex(ephemeral, 1024, label + "_EPHEMERAL")
+    return identity + (_hex(ephemeral, MAX_EPHEMERAL_BYTES, label + "_EPHEMERAL")
                        if ephemeral is not None else b"")
 
 

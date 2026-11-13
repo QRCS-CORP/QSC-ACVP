@@ -66,7 +66,7 @@ import time
 
 from demo_client import (DEMO_API, DemoTransport, RefreshingTransport, totp,
                          check_path)
-from kda_hkdf_client import KdaHexError, _hex
+from kda_hkdf_client import KdaHexError, MAX_EPHEMERAL_BYTES, _hex
 
 
 def _inspect_field(counts, label, value, bound):
@@ -123,7 +123,7 @@ def inspect_vector(envelope):
                 _inspect_field(counts, prefix + "_PARTY_ID", party.get("partyId"), 512)
                 if party.get("ephemeralData") is not None:
                     _inspect_field(counts, prefix + "_EPHEMERAL",
-                                   party["ephemeralData"], 1024)
+                                   party["ephemeralData"], MAX_EPHEMERAL_BYTES)
             if test_type == "VAL":
                 _inspect_field(counts, "DKM", case.get("dkm"), 256)
     return {

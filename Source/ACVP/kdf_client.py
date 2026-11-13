@@ -113,7 +113,7 @@ class QscKdf:
         """RFC 5869 extract+expand using QSC one-shot primitives."""
         if (hash_name not in HASHES or type(length) is not int or
                 length < 1 or length > 255 * HASHES[hash_name][1] or
-                len(secret) > 8192 or len(salt) > 8192 or len(info) > 8192):
+                len(secret) > 8192 or len(salt) > 8192 or len(info) > 262144):
             raise ValueError("Unsupported QSC HKDF input")
         hashlen = HASHES[hash_name][1]
         suffix = HASHES[hash_name][2]

@@ -110,6 +110,18 @@ class KdaSessionInspectTests(unittest.TestCase):
                 case["fixedInfoPartyV"]["ephemeralData"] = None
                 self.assertEqual(inspect_vector(request)["issues"], {})
 
+    def test_large_ephemeral_component_below_bound_is_valid(self):
+        """Recognize valid KDA fixed-info data above the original 1 KiB cap."""
+        for revision in ("Sp800-56Cr1", "Sp800-56Cr2"):
+            with self.subTest(revision=revision):
+                request = vectors(revision=revision)
+                case = request[1]["testGroups"][0]["tests"][0]
+                case["fixedInfoPartyU"]["ephemeralData"] = "AB" * 4096
+                case["fixedInfoPartyV"]["ephemeralData"] = "CD" * 65536
+                result = inspect_vector(request)
+                self.assertEqual(result["issues"], {},
+                                 f"FAIL: valid large KDA ephemeral {revision}")
+
     def test_read_only_session_uses_no_registration_or_result_posts(self):
         class ReadOnlyMock:
             def __init__(self):
