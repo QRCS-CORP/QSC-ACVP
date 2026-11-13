@@ -128,8 +128,9 @@ def _party(party, label) -> bytes:
     identity = _hex(party["partyId"], 512, label + "_PARTY_ID")
     if not identity:
         raise ValueError("Empty fixed-info party identifier")
-    return identity + (_hex(party["ephemeralData"], 1024, label + "_EPHEMERAL")
-                       if "ephemeralData" in party else b"")
+    ephemeral = party.get("ephemeralData")
+    return identity + (_hex(ephemeral, 1024, label + "_EPHEMERAL")
+                       if ephemeral is not None else b"")
 
 
 def response(envelope: list, qsc) -> list:
@@ -178,7 +179,12 @@ def response(envelope: list, qsc) -> list:
                     "t" in parameters):
                 raise ValueError("Unsupported KDA-HKDF case parameters")
             secret = _hex(parameters.get("z"), field="Z")
-            salt = _hex(parameters.get("salt"), field="SALT")
+            salt_input = parameters.get("salt")
+            if salt_input is None and configuration["saltMethod"] == "default":
+                # ACVP default salt is an all-zero string of the configured size.
+                salt = bytes(salt_bits // 8)
+            else:
+                salt = _hex(salt_input, field="SALT")
             if len(secret) * 8 != z_bits or len(salt) * 8 != salt_bits:
                 raise ValueError("KDA-HKDF input bit length mismatch")
             if configuration["saltMethod"] == "default" and any(salt):
