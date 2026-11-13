@@ -110,7 +110,7 @@ jobs:
               test_ecc_vectors.ECCNativeVectorTests \
               test_ecc_hcg_native.EccHcgNativeTests -v \
             2>&1 | tee "$RUNNER_TEMP/qsc-ecdsa-hcg-native-preflight.log"
-          grep -Eq '^Ran 98 tests in' "$RUNNER_TEMP/qsc-ecdsa-hcg-native-preflight.log"
+          grep -Eq '^Ran 99 tests in' "$RUNNER_TEMP/qsc-ecdsa-hcg-native-preflight.log"
           grep -Eq '^OK$' "$RUNNER_TEMP/qsc-ecdsa-hcg-native-preflight.log"
           if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-ecdsa-hcg-native-preflight.log"; then
             echo 'FAIL: native ECDSA HCG preflight incomplete' >&2
