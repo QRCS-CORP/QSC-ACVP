@@ -54,7 +54,7 @@ jobs:
           PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
             python -m unittest test_kda_session_inspect.KdaSessionInspectTests -v \
             2>&1 | tee "$RUNNER_TEMP/qsc-kda-inspection-preflight.log"
-          grep -Eq '^Ran 4 tests in' "$RUNNER_TEMP/qsc-kda-inspection-preflight.log"
+          grep -Eq '^Ran 5 tests in' "$RUNNER_TEMP/qsc-kda-inspection-preflight.log"
           grep -Eq '^OK$' "$RUNNER_TEMP/qsc-kda-inspection-preflight.log"
           echo 'PASS: read-only inspection preflight'
 
