@@ -377,7 +377,12 @@ def registration(algorithm, drbg_validation, mode=None):
     accepted as an implicit claim. Missing QSC implementation symbols fail at
     library initialization; no curve is silently removed from registration.
     """
-    if not isinstance(drbg_validation, str) or not drbg_validation.strip() or drbg_validation.strip().lower() == "same":
+    # Local HCG/CSG designations are not SP 800-90A DRBG validation numbers.
+    # A syntactically accepted external value does not prove its provenance.
+    invalid = ("same", "pending", "none", "not-validated",
+               "hcg", "csg", "qsc-hcg", "qsc-csg")
+    if (not isinstance(drbg_validation, str) or not drbg_validation.strip() or
+            drbg_validation.strip().lower() in invalid):
         raise ValueError("ECC registration requires a verified DRBG prerequisite")
     prereq = [{"algorithm": "DRBG", "valValue": drbg_validation.strip()}]
     prime_curves = list(NIST_CURVES)
