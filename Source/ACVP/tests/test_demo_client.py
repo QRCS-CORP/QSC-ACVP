@@ -242,6 +242,67 @@ class DemoClientTests(unittest.TestCase):
         self.assertNotIn("sensitive-adapter-internal-text", str(report))
         self.assertNotIn("private-session-token", str(report))
 
+    def test_aes_ctr_rejected_vector_records_allowlisted_error(self):
+        """Bad CTR payload metadata yields a stage and safe diagnostic code."""
+        class BadCtrVector(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": client.AES_CTR, "revision": "1.0",
+                             "testGroups": [{"tgId": 7, "testType": "AFT",
+                                             "direction": "encrypt", "keyLen": 128,
+                                             "tests": [{"tcId": 8, "key": "00" * 16,
+                                                        "iv": "00" * 16, "pt": "00" * 16,
+                                                        "payloadLen": 64}]}]}]
+                return super().request(method, path, token, body)
+
+        server = BadCtrVector()
+        cipher = Oracle()
+        cipher.aes = object()
+        report = client.execute(
+            server, cipher, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            (client.AES_CTR,), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        result = report["vectors"][0]
+        self.assertEqual(result["stage"], "BUILD_RESPONSE")
+        self.assertEqual(result["reason"], "ValueError")
+        self.assertEqual(result["diagnostic_code"], "PAYLOAD_LEN")
+        self.assertNotIn("private-login-token", str(report))
+        self.assertNotIn("private-session-token", str(report))
+        self.assertFalse(any(method == "POST" and path == server.vector + "/results"
+                             for method, path, token, body in server.calls))
+
+    def test_aes_ctr_unknown_exception_text_is_not_reported(self):
+        """Opaque native CTR errors must not expose implementation details."""
+        class ValidCtrVector(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": client.AES_CTR, "revision": "1.0",
+                             "testGroups": [{"tgId": 7, "testType": "AFT",
+                                             "direction": "encrypt", "keyLen": 128,
+                                             "tests": [{"tcId": 8, "key": "00" * 16,
+                                                        "iv": "00" * 16, "pt": "00" * 16,
+                                                        "payloadLen": 128}]}]}]
+                return super().request(method, path, token, body)
+
+        class RejectingCtr:
+            def ctr(self, key, iv, payload):
+                raise ValueError("sensitive-native-internal-text")
+
+        server = ValidCtrVector()
+        cipher = Oracle()
+        cipher.aes = RejectingCtr()
+        report = client.execute(
+            server, cipher, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            (client.AES_CTR,), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        result = report["vectors"][0]
+        self.assertEqual(result["stage"], "BUILD_RESPONSE")
+        self.assertEqual(result["diagnostic_code"], "UNCLASSIFIED_VALUE_ERROR")
+        self.assertNotIn("sensitive-native-internal-text", str(report))
+        self.assertNotIn("private-session-token", str(report))
+
     def test_large_response_uses_server_grant_and_single_upload(self):
         """Large responses use a grant rather than the standard result endpoint."""
         class LargeServer(FakeTransport):
