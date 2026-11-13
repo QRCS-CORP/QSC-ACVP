@@ -175,6 +175,7 @@ jobs:
               "vector_set": "4148792",
               "network": "LOGIN_ONCE_GET_EXISTING_VECTOR_ONCE_NO_NEW_SESSION_NO_SUBMISSION",
               "status": "UNAVAILABLE",
+              "stage": "INITIALIZE_TRANSPORT",
               "groups": []
           }
           allowed = {
@@ -198,12 +199,15 @@ jobs:
           try:
               transport = DemoTransport(root / "acvts-demo-cert.pem",
                                         root / "acvts-demo-key.pem")
+              report["stage"] = "LOGIN"
               login = transport.request("POST", DEMO_API + "/login", body=[
                   {"acvVersion": "1.0"},
                   {"password": totp(os.environ["ACVP_TOTP_SEED"], time.time())}])
               token = login[1]["accessToken"]
               url = DEMO_API + "/testSessions/787649/vectorSets/4148792"
+              report["stage"] = "FETCH_EXISTING_VECTOR"
               vector = transport.request("GET", url, token)
+              report["stage"] = "EXAMINE_VECTOR"
               body = vector[1]
               if body.get("retry") is not None:
                   report["status"] = "SERVER_VECTOR_NOT_READY"
@@ -212,6 +216,7 @@ jobs:
                     not isinstance(body.get("testGroups"), list)):
                   report["status"] = "UNEXPECTED_VECTOR_ENVELOPE"
               else:
+                  report["stage"] = "RUN_OFFLINE_PARSER"
                   adapter = QscAes(root / "qsc-acvts-demo-build/libqsc_acvp_aes.so")
                   report["status"] = "ADAPTER_ACCEPTED"
                   for index, group in enumerate(body["testGroups"]):
@@ -243,12 +248,34 @@ jobs:
                           item["errorType"] = type(exc).__name__
                           report["status"] = "ADAPTER_REJECTED"
                           break
-          except (Exception) as exc:
+          except Exception as exc:
               report["status"] = "ACCESS_OR_PROTOCOL_ERROR"
               report["errorType"] = type(exc).__name__
+              # Report only fixed error categories; never serialize token, URI or response.
+              reason = str(exc)
+              categories = {
+                  "Invalid ACVTS TOTP inputs": "TOTP_INPUT",
+                  "Invalid Base64 ACVTS TOTP seed": "TOTP_SEED",
+                  "ACVP bearer token expired": "AUTHORIZATION",
+                  "Unrecognized ACVP response envelope": "RESPONSE_ENVELOPE",
+                  "Unexpected empty ACVP response": "EMPTY_RESPONSE",
+                  "NIST Demo certificate or private key is missing": "MISSING_IDENTITY",
+                  "Invalid ACVP URI": "URI_VALIDATION"
+              }
+              report["errorCategory"] = categories.get(reason, "UNCLASSIFIED")
+              if reason.startswith("ACVP request rejected with HTTP "):
+                  code = reason.rsplit(" ", 1)[-1]
+                  if code in ("400", "401", "403", "404", "409", "410", "422",
+                              "429", "500", "502", "503", "504"):
+                      report["errorCategory"] = "HTTP_" + code
+              if reason.startswith("ACVP GET temporarily unavailable: HTTP "):
+                  code = reason.rsplit(" ", 1)[-1]
+                  if code in ("429", "502", "503", "504"):
+                      report["errorCategory"] = "HTTP_" + code
           (out / "aes-ecb-readonly-diagnostic.json").write_text(
               json.dumps(report, indent=2) + "\n", encoding="utf-8")
-          print("AES-ECB session 787649 read-only diagnostic:", report["status"])
+          print("AES-ECB session 787649 read-only diagnostic:", report["status"],
+                "stage:", report["stage"], "category:", report.get("errorCategory", "NONE"))
           for item in report["groups"]:
               if item["status"] == "REJECTED":
                   print("First rejected group:", item["index"], item["testType"],
