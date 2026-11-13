@@ -125,6 +125,48 @@ class AesVectorTests(unittest.TestCase):
         self.assertEqual(result[1]['testGroups'][0]['tests'][0],
                          {'tcId': 10, 'ct': '55' * 16})
 
+    def test_aes_ecb_aft_multiblock_encrypt_decrypt(self):
+        """ECB AFT transforms each complete block without changing its order."""
+        plaintext = bytes(range(48))
+        encrypted = bytes(value ^ 0x55 for value in plaintext)
+        for direction, source, expected in (
+                ("encrypt", plaintext, encrypted),
+                ("decrypt", encrypted, plaintext)):
+            field = "pt" if direction == "encrypt" else "ct"
+            result_field = "ct" if direction == "encrypt" else "pt"
+            envelope = [{'acvVersion': '1.0'},
+                        {'vsId': 99, 'algorithm': 'ACVP-AES-ECB',
+                         'testGroups': [{'tgId': 3, 'testType': 'AFT',
+                                         'direction': direction, 'keyLen': 128,
+                                         'tests': [{'tcId': 10, 'key': '11' * 16,
+                                                    field: source.hex()}]}]}]
+            result = build_ecb_response(envelope, StubAes())
+            self.assertEqual(result[1]['testGroups'][0]['tests'][0],
+                             {'tcId': 10, result_field: expected.hex().upper()})
+
+    def test_aes_ecb_reject_non_aligned_and_oversized_aft(self):
+        """ECB AFT must reject partial, empty and unbounded payloads."""
+        for size in (0, 15, 17, 8193, 8208):
+            envelope = [{'acvVersion': '1.0'},
+                        {'vsId': 99, 'algorithm': 'ACVP-AES-ECB',
+                         'testGroups': [{'tgId': 3, 'testType': 'AFT',
+                                         'direction': 'encrypt', 'keyLen': 128,
+                                         'tests': [{'tcId': 10, 'key': '11' * 16,
+                                                    'pt': '00' * size}]}]}]
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                build_ecb_response(envelope, StubAes())
+
+    def test_aes_ecb_mct_reject_multiblock_seed(self):
+        """ECB Monte Carlo requires one 128-bit seed input."""
+        envelope = [{'acvVersion': '1.0'},
+                    {'vsId': 99, 'algorithm': 'ACVP-AES-ECB',
+                     'testGroups': [{'tgId': 3, 'direction': 'encrypt', 'testType': 'MCT',
+                                     'keyLen': 128,
+                                     'tests': [{'tcId': 10, 'key': '11' * 16,
+                                                'pt': '00' * 32}]}]}]
+        with self.assertRaisesRegex(ValueError, "MCT input must be one block"):
+            build_ecb_response(envelope, StubAes())
+
     def test_aes_ecb_mct_response_shape(self):
         envelope = [{'acvVersion': '1.0'}, {'vsId': 99, 'algorithm': 'ACVP-AES-ECB',
                     'testGroups': [{'tgId': 3, 'direction': 'decrypt', 'testType': 'MCT',
