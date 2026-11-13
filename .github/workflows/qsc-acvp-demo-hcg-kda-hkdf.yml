@@ -157,7 +157,7 @@ jobs:
               test_kda_hkdf_vectors.KdaHkdfSchemaTests \
               test_kda_hcg_native.KdaHcgNativeTests -v \
             2>&1 | tee "$RUNNER_TEMP/kda-hcg-native-preflight.log"
-          grep -Eq '^Ran 23 tests in' "$RUNNER_TEMP/kda-hcg-native-preflight.log"
+          grep -Eq '^Ran 28 tests in' "$RUNNER_TEMP/kda-hcg-native-preflight.log"
           grep -Eq '^OK$' "$RUNNER_TEMP/kda-hcg-native-preflight.log"
           if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/kda-hcg-native-preflight.log"; then
             echo 'FAIL: KDA/HCG native preflight incomplete' >&2

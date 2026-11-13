@@ -97,6 +97,19 @@ class KdaSessionInspectTests(unittest.TestCase):
         self.assertNotIn("SENSITIVE_PRIVATE_STRING", str(result))
         self.assertNotIn(str(case["kdfParameter"]["z"]), str(result))
 
+    def test_default_salt_and_null_optional_ephemeral_are_not_invalid_hex(self):
+        """Read-only diagnostics recognize valid optional HKDF input forms."""
+        for revision in ("Sp800-56Cr1", "Sp800-56Cr2"):
+            with self.subTest(revision=revision):
+                request = vectors(revision=revision)
+                group = request[1]["testGroups"][0]
+                group["kdfConfiguration"]["saltMethod"] = "default"
+                case = group["tests"][0]
+                case["kdfParameter"]["salt"] = None
+                case["fixedInfoPartyU"]["ephemeralData"] = None
+                case["fixedInfoPartyV"]["ephemeralData"] = None
+                self.assertEqual(inspect_vector(request)["issues"], {})
+
     def test_read_only_session_uses_no_registration_or_result_posts(self):
         class ReadOnlyMock:
             def __init__(self):

@@ -345,6 +345,86 @@ class KdaHkdfSchemaTests(unittest.TestCase):
         self.assertFalse(any(method == "POST" and path == server.vector + "/results"
                              for method, path, _, _ in server.calls))
 
+    def test_default_salt_omitted_derives_expected_dkm(self):
+        """Both KDA revisions accept omitted salt for default-salt groups."""
+        reference = type("Reference", (), {"hkdf": staticmethod(oracle)})()
+        for revision in ("Sp800-56Cr1", "Sp800-56Cr2"):
+            with self.subTest(revision=revision):
+                request = vectors(revision=revision)
+                group = request[1]["testGroups"][0]
+                group["kdfConfiguration"]["saltMethod"] = "default"
+                del group["tests"][0]["kdfParameter"]["salt"]
+                actual = response(request, reference)[1]["testGroups"][0]["tests"][0]["dkm"]
+                expected = oracle(
+                    "SHA2-256", bytes(range(28)), bytes(32),
+                    bytes.fromhex("01020304AABB00000100"), 32).hex().upper()
+                self.assertEqual(actual, expected,
+                                 "FAIL: omitted default KDA salt must be all zero")
+
+    def test_default_salt_null_derives_expected_dkm(self):
+        """Null default salt is equivalent to a configured all-zero salt."""
+        reference = type("Reference", (), {"hkdf": staticmethod(oracle)})()
+        for revision in ("Sp800-56Cr1", "Sp800-56Cr2"):
+            with self.subTest(revision=revision):
+                request = vectors(revision=revision)
+                group = request[1]["testGroups"][0]
+                group["kdfConfiguration"]["saltMethod"] = "default"
+                group["tests"][0]["kdfParameter"]["salt"] = None
+                actual = response(request, reference)[1]["testGroups"][0]["tests"][0]["dkm"]
+                expected = oracle(
+                    "SHA2-256", bytes(range(28)), bytes(32),
+                    bytes.fromhex("01020304AABB00000100"), 32).hex().upper()
+                self.assertEqual(actual, expected,
+                                 "FAIL: null default KDA salt must be all zero")
+
+    def test_random_salt_null_or_missing_is_rejected(self):
+        """Random salt must be explicitly supplied for both KDA revisions."""
+        for revision in ("Sp800-56Cr1", "Sp800-56Cr2"):
+            for mode in ("missing", "null"):
+                with self.subTest(revision=revision, mode=mode):
+                    request = vectors(revision=revision)
+                    params = request[1]["testGroups"][0]["tests"][0]["kdfParameter"]
+                    if mode == "missing":
+                        del params["salt"]
+                    else:
+                        params["salt"] = None
+                    with self.assertRaises(KdaHexError) as context:
+                        response(request, object())
+                    self.assertEqual(
+                        (context.exception.field, context.exception.issue),
+                        ("SALT", "MISSING"))
+
+    def test_optional_null_party_ephemeral_is_empty(self):
+        """Absent and null optional ephemeral data have identical FixedInfo."""
+        reference = type("Reference", (), {"hkdf": staticmethod(oracle)})()
+        for revision in ("Sp800-56Cr1", "Sp800-56Cr2"):
+            with self.subTest(revision=revision):
+                request = vectors(revision=revision)
+                case = request[1]["testGroups"][0]["tests"][0]
+                case["fixedInfoPartyU"]["ephemeralData"] = None
+                case["fixedInfoPartyV"]["ephemeralData"] = None
+                actual = response(request, reference)[1]["testGroups"][0]["tests"][0]["dkm"]
+                expected = oracle(
+                    "SHA2-256", bytes(range(28)), bytes(range(32)),
+                    bytes.fromhex("0102AABB00000100"), 32).hex().upper()
+                self.assertEqual(actual, expected,
+                                 "FAIL: optional null ephemeral must contribute zero bytes")
+
+    def test_null_required_party_and_secret_still_rejected(self):
+        """Optional-value support must not mask malformed required hex fields."""
+        request = vectors()
+        request[1]["testGroups"][0]["tests"][0]["kdfParameter"]["z"] = None
+        with self.assertRaises(KdaHexError) as context:
+            response(request, object())
+        self.assertEqual((context.exception.field, context.exception.issue),
+                         ("Z", "MISSING"))
+        request = vectors()
+        request[1]["testGroups"][0]["tests"][0]["fixedInfoPartyU"]["partyId"] = None
+        with self.assertRaises(KdaHexError) as context:
+            response(request, object())
+        self.assertEqual((context.exception.field, context.exception.issue),
+                         ("U_PARTY_ID", "MISSING"))
+
     def test_mock_authenticated_demo_session_sanitizes_tokens(self):
         from test_demo_client import FakeTransport
         class KdaTransport(FakeTransport):

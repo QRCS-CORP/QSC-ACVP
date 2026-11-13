@@ -110,14 +110,18 @@ def inspect_vector(envelope):
                 counts["MISSING_KDF_PARAMETER"] += 1
                 continue
             _inspect_field(counts, "Z", parameters.get("z"), 8192)
-            _inspect_field(counts, "SALT", parameters.get("salt"), 8192)
+            config = group.get("kdfConfiguration")
+            salt_method = config.get("saltMethod") if isinstance(config, dict) else None
+            salt_value = parameters.get("salt")
+            if salt_value is not None or salt_method != "default":
+                _inspect_field(counts, "SALT", salt_value, 8192)
             for prefix, key in (("U", "fixedInfoPartyU"), ("V", "fixedInfoPartyV")):
                 party = case.get(key)
                 if not isinstance(party, dict):
                     counts["MISSING_" + prefix + "_PARTY"] += 1
                     continue
                 _inspect_field(counts, prefix + "_PARTY_ID", party.get("partyId"), 512)
-                if "ephemeralData" in party:
+                if party.get("ephemeralData") is not None:
                     _inspect_field(counts, prefix + "_EPHEMERAL",
                                    party["ephemeralData"], 1024)
             if test_type == "VAL":
