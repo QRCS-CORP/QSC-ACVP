@@ -124,7 +124,7 @@ jobs:
                                'skipped=' not in aes)
           ctr_path = out / 'aes-modes-tests.log'
           ctr = ctr_path.read_text(encoding='utf-8') if ctr_path.is_file() else ''
-          passed = passed and ('\nOK\n' in ctr and 'Ran 16 tests' in ctr and
+          passed = passed and ('\nOK\n' in ctr and 'Ran 18 tests' in ctr and
                                'FAILED' not in ctr and 'ERROR' not in ctr and
                                'skipped=' not in ctr)
           report = {
