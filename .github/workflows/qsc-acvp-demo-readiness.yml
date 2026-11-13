@@ -121,13 +121,13 @@ jobs:
           set -euo pipefail
           python -m unittest discover -s Source/ACVP/tests -p test_pq_vector_modes.py -v \
             2>&1 | tee "$RUNNER_TEMP/qsc-acvp-demo-readiness/pq-modes-tests.log"
-          grep -Eq '^Ran 14 tests in' "$RUNNER_TEMP/qsc-acvp-demo-readiness/pq-modes-tests.log"
+          grep -Eq '^Ran 19 tests in' "$RUNNER_TEMP/qsc-acvp-demo-readiness/pq-modes-tests.log"
           grep -Eq '^OK$' "$RUNNER_TEMP/qsc-acvp-demo-readiness/pq-modes-tests.log"
           if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-acvp-demo-readiness/pq-modes-tests.log"; then
             echo 'FAIL: ML-DSA signing mode compatibility tests' >&2
             exit 1
           fi
-          echo 'PASS: ML-DSA keyGen/sigGen/sigVer and signature mode schema'
+          echo 'PASS: ML-DSA and SLH-DSA keyGen/sigGen/sigVer schema checks'
 
       - name: Verify credentials are absent from regression process
         shell: bash
@@ -154,7 +154,7 @@ jobs:
           recovery = out / 'verdict-client-tests.log'
           data = primary.read_text(encoding='utf-8') if primary.is_file() else ''
           verification = recovery.read_text(encoding='utf-8') if recovery.is_file() else ''
-          passed = (('\nOK\n' in data and 'Ran 36 tests' in data and
+          passed = (('\nOK\n' in data and 'Ran 38 tests' in data and
                      'FAILED' not in data and 'ERROR' not in data and 'skipped=' not in data)
                     and ('\nOK\n' in verification and 'Ran 6 tests' in verification and
                          'FAILED' not in verification and 'ERROR' not in verification
@@ -181,7 +181,7 @@ jobs:
                                'skipped=' not in mlkem)
           pq_modes_path = out / 'pq-modes-tests.log'
           pq_modes = pq_modes_path.read_text(encoding='utf-8') if pq_modes_path.is_file() else ''
-          passed = passed and ('\nOK\n' in pq_modes and 'Ran 14 tests' in pq_modes and
+          passed = passed and ('\nOK\n' in pq_modes and 'Ran 19 tests' in pq_modes and
                                'FAILED' not in pq_modes and 'ERROR' not in pq_modes and
                                'skipped=' not in pq_modes)
           report = {
