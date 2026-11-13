@@ -106,7 +106,8 @@ def vectors(revision="Sp800-56Cr1", test_type="AFT", digest="SHA2-256"):
 
 class KdaHkdfSchemaTests(unittest.TestCase):
     def test_registration_requires_verified_drbg(self):
-        for item in (None, "", "same", "pending", "not-validated"):
+        for item in (None, "", "same", "pending", "not-validated",
+                     "HCG", "CSG", "qsc-hcg", "QSC-CSG"):
             with self.subTest(item=item), self.assertRaises(ValueError):
                 registration(item)
 
