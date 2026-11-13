@@ -74,6 +74,7 @@ import urllib.parse
 import urllib.request
 
 from local_client import QSC, build_response
+from drbg_client import QscDrbg, registration as drbg_registration
 from kdf_client import QscKdf, pbkdf_registration
 from kda_hkdf_client import registration as kda_hkdf_registration, SELECTION as KDA_HKDF
 from ecc_client import QscEcc, registration as ecc_registration
@@ -88,7 +89,7 @@ DEMO_API = "/acvp/v1"
 SHA_ALGORITHMS = ("SHA2-256", "SHA2-384", "SHA2-512", "SHA3-256", "SHA3-512",
                   "SHAKE-128", "SHAKE-256", "HMAC-SHA2-256", "HMAC-SHA2-384", "HMAC-SHA2-512")
 DEFAULT_ALGORITHMS = SHA_ALGORITHMS + (AES_ECB, AES_CBC, AES_CTR, AES_GCM, "ML-KEM", "ML-DSA", "SLH-DSA", "PBKDF")
-ALGORITHMS = DEFAULT_ALGORITHMS + ("ECDSA", "DetECDSA", "EDDSA", "XECDH", "KAS-ECC-SSC", KDA_HKDF)
+ALGORITHMS = DEFAULT_ALGORITHMS + ("ECDSA", "DetECDSA", "EDDSA", "XECDH", "KAS-ECC-SSC", KDA_HKDF, "hmacDRBG")
 
 
 def totp(seed: str, now: float) -> str:
@@ -130,6 +131,8 @@ def registration(algorithms: tuple[str, ...] = SHA_ALGORITHMS,
         raise ValueError("SLH-DSA requires SHAKE-256 prerequisite")
     if "PBKDF" in algorithms and not {"SHA2-256", "SHA2-384", "SHA2-512"}.issubset(algorithms):
         raise ValueError("PBKDF requires all registered SHA2 prerequisites")
+    if "hmacDRBG" in algorithms and not {"SHA2-512", "HMAC-SHA2-512"}.issubset(algorithms):
+        raise ValueError("hmacDRBG requires SHA2-512 and HMAC-SHA2-512 in the same session")
     if KDA_HKDF in algorithms and not {"HMAC-SHA2-256", "HMAC-SHA2-384", "HMAC-SHA2-512"}.issubset(algorithms):
         raise ValueError("KDA-HKDF requires HMAC-SHA2 prerequisites in the same session")
     if "KAS-ECC-SSC" in algorithms and "ECDSA" not in algorithms:
@@ -141,7 +144,9 @@ def registration(algorithms: tuple[str, ...] = SHA_ALGORITHMS,
         raise ValueError("EDDSA requires registered SHA prerequisites")
     capabilities = []
     for name in algorithms:
-        if name == KDA_HKDF:
+        if name == "hmacDRBG":
+            capabilities.append(drbg_registration())
+        elif name == KDA_HKDF:
             capabilities.extend(kda_hkdf_registration(drbg_validation))
         elif name == "PBKDF":
             capabilities.append(pbkdf_registration())
@@ -479,7 +484,14 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
             if vector_result["algorithm"] not in selected:
                 raise ValueError("Unregistered or unsupported algorithm in vector set")
             stage = "BUILD_RESPONSE"
-            response = build_response(request, qsc)
+            if request[1].get("algorithm") == "hmacDRBG":
+                from drbg_client import build_response as drbg_build_response
+                drbg = getattr(qsc, "drbg", None)
+                if drbg is None:
+                    raise ValueError("HMAC_DRBG native adapter was not configured")
+                response = drbg_build_response(request, drbg)
+            else:
+                response = build_response(request, qsc)
             response_size = len(json.dumps(response).encode("utf-8"))
             use_large = large_required and standard_limit >= 0 and response_size > standard_limit
             stage = "SUBMIT_RESPONSE"
@@ -706,6 +718,7 @@ def main() -> int:
     parser.add_argument("--aes-library", type=Path)
     parser.add_argument("--pq-library", type=Path)
     parser.add_argument("--ecc-library", type=Path)
+    parser.add_argument("--drbg-library", type=Path)
     parser.add_argument("--cert", type=Path, required=True)
     parser.add_argument("--key", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -726,6 +739,9 @@ def main() -> int:
     if any(name in args.algorithms for name in ("ML-KEM", "ML-DSA", "SLH-DSA")) and (
             args.pq_library is None or not args.pq_library.is_file()):
         parser.error("PQ algorithm requested but QSC PQ library was not supplied")
+    if "hmacDRBG" in args.algorithms and (args.drbg_library is None or
+            not args.drbg_library.is_file()):
+        parser.error("HMAC_DRBG tests require the pinned QSC DRBG native library")
     ecc_selected = any(name in args.algorithms for name in
                        ("ECDSA", "DetECDSA", "EDDSA", "XECDH", "KAS-ECC-SSC"))
     if ecc_selected and (args.ecc_library is None or not args.ecc_library.is_file()):
@@ -745,6 +761,8 @@ def main() -> int:
         transport = DemoTransport(args.cert, args.key, args.large_origin)
         qsc = QSC(args.library)
         qsc.kdf = QscKdf(args.library)
+        if "hmacDRBG" in args.algorithms:
+            qsc.drbg = QscDrbg(args.drbg_library, "hcg")
         if args.aes_library is not None:
             qsc.aes = QscAes(args.aes_library)
         if args.pq_library is not None:
