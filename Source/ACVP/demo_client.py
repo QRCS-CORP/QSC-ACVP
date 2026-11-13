@@ -540,6 +540,31 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                         "INVALID_HEX_" + field.upper())
                 vector_result["diagnostic_code"] = ctr_errors.get(
                     str(exc), "UNCLASSIFIED_VALUE_ERROR")
+            if vector_result["algorithm"] == AES_GCM and isinstance(exc, ValueError):
+                # Permit only reviewed fixed labels in public evidence; never
+                # serialize arbitrary native, vector, or transport text.
+                gcm_errors = {
+                    "Malformed ACVP AES envelope": "INVALID_ENVELOPE",
+                    "Unsupported ACVP AES vector set": "INVALID_VECTOR",
+                    "No AES-GCM test groups": "NO_TEST_GROUPS",
+                    "Unsupported AES-GCM group capability": "UNSUPPORTED_GROUP",
+                    "Invalid AES-GCM case identifier": "INVALID_CASE",
+                    "AES-GCM key length mismatch": "KEY_LENGTH",
+                    "AES-GCM aadLen does not match provided bytes": "AAD_LENGTH",
+                    "AES-GCM payloadLen does not match provided bytes": "PAYLOAD_LENGTH",
+                    "AES-GCM input exceeds tested limit": "OUTSIDE_CAPABILITY",
+                    "Unsupported AES-GCM capability": "UNSUPPORTED_NATIVE_CAPABILITY",
+                    "QSC AES-GCM encrypt failed": "NATIVE_ENCRYPT_FAILURE",
+                    "AES library was not configured": "MISSING_AES_ADAPTER"
+                }
+                for field in ("key", "iv", "aad", "pt", "ct", "plainText",
+                              "cipherText", "tag"):
+                    gcm_errors["Missing or malformed " + field] = (
+                        "MALFORMED_" + field.upper())
+                    gcm_errors["Invalid hex for " + field] = (
+                        "INVALID_HEX_" + field.upper())
+                vector_result["diagnostic_code"] = gcm_errors.get(
+                    str(exc), "UNCLASSIFIED_VALUE_ERROR")
     if any(item["status"] == "FAIL" for item in report["vectors"]):
         report["status"] = "FAIL_OR_UNSUPPORTED_VECTOR"
         return report
