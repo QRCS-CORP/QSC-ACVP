@@ -212,13 +212,18 @@ def build_ecb_response(envelope: list, aes: QscAes) -> list:
             key = _required_hex(case, 'key')
             source_name = 'pt' if encrypt else 'ct'
             block = _required_hex(case, source_name if source_name in case else ('plainText' if encrypt else 'cipherText'))
-            if len(key) * 8 != group.get('keyLen', group.get('keylen')) or len(block) != 16:
-                raise ValueError('AES-ECB key or block length mismatch')
+            if len(key) * 8 != group.get('keyLen', group.get('keylen')):
+                raise ValueError('AES-ECB key length does not match group')
             if group['testType'] == 'MCT':
+                if len(block) != 16:
+                    raise ValueError('AES-ECB MCT input must be one block')
                 cases.append({'tcId': case['tcId'],
                               'resultsArray': _ecb_mct(aes, key, block, encrypt)})
             else:
-                value = aes.ecb(key, block, encrypt)
+                if not 16 <= len(block) <= MAX_PAYLOAD or len(block) % 16:
+                    raise ValueError('AES-ECB AFT payload must contain complete blocks')
+                value = b''.join(aes.ecb(key, block[index:index + 16], encrypt)
+                                 for index in range(0, len(block), 16))
                 cases.append({'tcId': case['tcId'],
                               'ct' if encrypt else 'pt': value.hex().upper()})
         groups.append({'tgId': group['tgId'], 'tests': cases})
