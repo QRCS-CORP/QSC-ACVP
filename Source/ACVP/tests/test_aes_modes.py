@@ -144,12 +144,37 @@ class AesModesVectorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_ctr_response(request, StubAes())
 
-    def test_ctr_aft_requires_payload_len(self):
-        """Omitted AFT payloadLen must not silently inherit the CTR exception."""
+    def test_ctr_aft_missing_payload_len_rejects_partial_block(self):
+        """Missing AFT length is ambiguous for a partial final block."""
         request = self.ctr_request(test_type='AFT')
         request[1]['testGroups'][0]['tests'][0].pop('payloadLen')
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, 'missing payload length'):
             build_ctr_response(request, StubAes())
+
+    def test_ctr_aft_omitted_payload_len_full_blocks(self):
+        """ACVP may omit payloadLen for complete AES-CTR AFT blocks."""
+        for direction in ('encrypt', 'decrypt'):
+            for length in (16, 32, 48, 64):
+                request = self.ctr_request(test_type='AFT', direction=direction)
+                case = request[1]['testGroups'][0]['tests'][0]
+                case.pop('payloadLen')
+                source_field = 'pt' if direction == 'encrypt' else 'ct'
+                output_field = 'ct' if direction == 'encrypt' else 'pt'
+                case[source_field] = '03' * length
+                result = build_ctr_response(request, StubAes())
+                self.assertEqual(result[1]['testGroups'][0]['tests'][0],
+                                 {'tcId': 7, output_field: 'A6' * length})
+
+    def test_ctr_aft_full_block_group_payload_len(self):
+        """Length supplied at group scope remains valid for AFT."""
+        request = self.ctr_request(test_type='AFT')
+        case = request[1]['testGroups'][0]['tests'][0]
+        case.pop('payloadLen')
+        case['pt'] = '03' * 16
+        request[1]['testGroups'][0]['payloadLen'] = 128
+        result = build_ctr_response(request, StubAes())
+        self.assertEqual(result[1]['testGroups'][0]['tests'][0],
+                         {'tcId': 7, 'ct': 'A6' * 16})
 
     def test_ctr_reject_nonmatching_payload_length(self):
         body = self.ctr_request()
