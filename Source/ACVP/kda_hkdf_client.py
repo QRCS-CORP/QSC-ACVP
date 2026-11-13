@@ -70,8 +70,10 @@ FIXED_INFO = "uPartyInfo||vPartyInfo||l"
 
 def registration(drbg_validation: str) -> list[dict]:
     """Require independently verified DRBG prerequisite before live registration."""
+    invalid = ("same", "pending", "none", "not-validated",
+               "hcg", "csg", "qsc-hcg", "qsc-csg")
     if (not isinstance(drbg_validation, str) or not drbg_validation.strip() or
-            drbg_validation.lower() in ("same", "pending", "none", "not-validated")):
+            drbg_validation.strip().lower() in invalid):
         raise ValueError("Verified external DRBG validation is required")
     capabilities = []
     for revision in REVISIONS:
