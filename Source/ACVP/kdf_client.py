@@ -175,8 +175,17 @@ def pbkdf_response(envelope: list, qsc: QscKdf) -> list:
                 salt = bytes.fromhex(salt_hex)
             except (ValueError, UnicodeError) as exc:
                 raise ValueError("Malformed PBKDF input") from exc
+            # Bound each case to the advertised ACVP capability before calling
+            # native QSC, rather than relying on native argument rejection.
+            iterations = case.get("iterationCount")
+            if not 8 <= len(password_bytes) <= 128:
+                raise ValueError("PBKDF password outside registered length")
+            if not 16 <= len(salt) <= 512:
+                raise ValueError("PBKDF salt outside registered length")
+            if type(iterations) is not int or not 10 <= iterations <= 1000:
+                raise ValueError("PBKDF iteration count outside registered range")
             derived = qsc.pbkdf2(group["hmacAlg"], password_bytes, salt,
-                                case.get("iterationCount"), length_bits // 8)
+                                iterations, length_bits // 8)
             cases.append({"tcId": case["tcId"], "derivedKey": derived.hex().upper()})
         groups.append({"tgId": group["tgId"], "tests": cases})
     return [{"acvVersion": "1.0"}, {"vsId": body["vsId"], "testGroups": groups}]
