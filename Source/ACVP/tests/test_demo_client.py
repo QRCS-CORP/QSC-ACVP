@@ -491,6 +491,68 @@ class DemoClientTests(unittest.TestCase):
         self.assertFalse(any(method == "POST" and path == server.vector + "/results"
                              for method, path, token, body in server.calls))
 
+    def test_slhdsa_incomplete_registered_modes_fails_closed(self):
+        """KeyGen alone cannot qualify registered sigGen and sigVer."""
+        class OnlyKeyGeneration(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": "SLH-DSA", "mode": "keyGen",
+                             "revision": "FIPS205",
+                             "testGroups": [{"tgId": 1, "testType": "AFT",
+                                             "parameterSet": "SLH-DSA-SHAKE-128s",
+                                             "tests": [{"tcId": 1, "skSeed": "ab" * 16,
+                                                        "skPrf": "cd" * 16,
+                                                        "pkSeed": "ef" * 16}]}]}]
+                return super().request(method, path, token, body)
+
+        class SlhAdapter:
+            def keygen(self, parameter, sk_seed, sk_prf, pk_seed):
+                return bytes([1]) * 32, bytes([2]) * 64
+
+        server = OnlyKeyGeneration()
+        engine = Oracle()
+        engine.slh = SlhAdapter()
+        report = client.execute(
+            server, engine, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            ("SHAKE-256", "SLH-DSA"), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_INCOMPLETE_ALGORITHM_COVERAGE")
+        self.assertEqual(report["missing_slh_modes"], ["sigGen", "sigVer"])
+        self.assertNotIn("private-session-token", str(report))
+        self.assertFalse(any(method == "GET" and path == server.session + "/results"
+                             for method, path, token, body in server.calls))
+
+    def test_slhdsa_unsupported_prehash_has_allowlisted_diagnostic(self):
+        """Unsupported FIPS205 preHash cannot leak vector contents in evidence."""
+        class BadSigningMode(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": "SLH-DSA", "mode": "sigGen",
+                             "revision": "FIPS205",
+                             "testGroups": [{"tgId": 1, "testType": "AFT",
+                                             "parameterSet": "SLH-DSA-SHAKE-128s",
+                                             "signatureInterface": "external",
+                                             "preHash": "preHash",
+                                             "deterministic": True,
+                                             "tests": [{"tcId": 1}]}]}]
+                return super().request(method, path, token, body)
+
+        server = BadSigningMode()
+        engine = Oracle()
+        engine.slh = object()
+        report = client.execute(
+            server, engine, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            ("SHAKE-256", "SLH-DSA"), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        self.assertEqual(report["vectors"][0]["diagnostic_code"], "UNSUPPORTED_INTERFACE")
+        self.assertEqual(report["vectors"][0]["stage"], "BUILD_RESPONSE")
+        self.assertNotIn("private-session-token", str(report))
+        self.assertFalse(any(method == "POST" and path == server.vector + "/results"
+                             for method, path, token, body in server.calls))
+
     def test_large_response_uses_server_grant_and_single_upload(self):
         """Large responses use a grant rather than the standard result endpoint."""
         class LargeServer(FakeTransport):
