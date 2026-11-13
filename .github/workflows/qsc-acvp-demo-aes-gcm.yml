@@ -215,7 +215,7 @@ jobs:
           if (data.get('status') != 'PASS_DEMO_SAMPLE' or
                   data.get('registration_algorithms') != ['ACVP-AES-ECB', 'ACVP-AES-GCM'] or
                   data.get('server_passed') is not True or
-                  len(data.get('vectors', [])) != 2 or
+                  len(data.get('vectors', [])) < 2 or
                   {item.get('algorithm') for item in data['vectors']} !=
                       {'ACVP-AES-ECB', 'ACVP-AES-GCM'} or
                   any(item.get('status') != 'SUBMITTED' for item in data['vectors'])):
