@@ -89,8 +89,8 @@ class PqVectorModeTests(unittest.TestCase):
         """One FIPS 204 vector set may contain all three parameter sets."""
         class QualifiedDsa:
             def keygen(self, name, seed):
-                return (b"\\x11" * MLDSA_PARAMETERS[name][1],
-                        b"\\x22" * MLDSA_PARAMETERS[name][2])
+                return (b"\x11" * MLDSA_PARAMETERS[name][1],
+                        b"\x22" * MLDSA_PARAMETERS[name][2])
         groups = [{"tgId": index, "testType": "AFT", "parameterSet": name,
                    "tests": [{"tcId": index + 20, "seed": "01" * 32}]}
                   for index, name in enumerate(MLDSA_PARAMETERS, 1)]
@@ -108,7 +108,7 @@ class PqVectorModeTests(unittest.TestCase):
         """Deterministic external pure sigGen accepts empty and 255-byte context."""
         class QualifiedDsa:
             def sign(self, name, sk, message, context):
-                return b"\\xA6" * MLDSA_PARAMETERS[name][3]
+                return b"\xA6" * MLDSA_PARAMETERS[name][3]
         groups = []
         for index, name in enumerate(MLDSA_PARAMETERS, 1):
             groups.append({"tgId": index, "testType": "AFT", "parameterSet": name,
