@@ -88,15 +88,7 @@ jobs:
           PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
             python -m unittest test_demo_client.DemoClientTests -v \
             2>&1 | tee "$RUNNER_TEMP/qsc-drbg-demo-regression.log"
-          grep -Eq '^OK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: qsc-drbg-hcg-csg-offline
-          path: ${{ runner.temp }}/qsc-drbg-native-tests.log
-          if-no-files-found: warn
-          retention-days: 14
- "$RUNNER_TEMP/qsc-drbg-demo-regression.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-drbg-demo-regression.log"
           if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-drbg-demo-regression.log"; then
             echo 'FAIL: Demo protocol regression' >&2
             exit 1
@@ -106,15 +98,7 @@ jobs:
               test_kda_hkdf_vectors.KdaHkdfSchemaTests -v \
             2>&1 | tee "$RUNNER_TEMP/qsc-drbg-ecc-kda-regression.log"
           grep -Eq '^Ran 28 tests in' "$RUNNER_TEMP/qsc-drbg-ecc-kda-regression.log"
-          grep -Eq '^OK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: qsc-drbg-hcg-csg-offline
-          path: ${{ runner.temp }}/qsc-drbg-native-tests.log
-          if-no-files-found: warn
-          retention-days: 14
- "$RUNNER_TEMP/qsc-drbg-ecc-kda-regression.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-drbg-ecc-kda-regression.log"
           if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-drbg-ecc-kda-regression.log"; then
             echo 'FAIL: ECC/KDA adapter regression' >&2
             exit 1
