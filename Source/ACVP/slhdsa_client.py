@@ -89,7 +89,7 @@ class QscSlhDsa:
     def sign(self, parameter: str, secret: bytes, message: bytes, context: bytes) -> bytes:
         """Generate deterministic external-pure SLH-DSA signature."""
         _, _, secret_len, signature_len, _ = PARAMETERS[parameter]
-        if len(secret) != secret_len or len(message) > 8192 or len(context) > 255:
+        if len(secret) != secret_len or not 1 <= len(message) <= 8192 or len(context) > 255:
             raise ValueError("Unsupported SLH-DSA signing input length")
         signature = c.create_string_buffer(signature_len)
         output_len = c.c_size_t(0)
@@ -103,7 +103,7 @@ class QscSlhDsa:
                context: bytes, signature: bytes) -> bool:
         """Verify a signature; malformed signature lengths represent verification failure."""
         _, public_len, _, signature_len, _ = PARAMETERS[parameter]
-        if len(public) != public_len or len(message) > 8192 or len(context) > 255:
+        if len(public) != public_len or not 1 <= len(message) <= 8192 or len(context) > 255:
             raise ValueError("Unsupported SLH-DSA verification input length")
         if len(signature) != signature_len:
             return False
@@ -150,6 +150,8 @@ def build_slhdsa_response(envelope: list, qsc: QscSlhDsa) -> list:
             else:
                 message = _bytes(case, "message")
                 context = _bytes(case, "context", maximum=255)
+                if not 1 <= len(message) <= 8192:
+                    raise ValueError("SLH-DSA message outside registered length")
                 if mode == "sigGen":
                     signature = qsc.sign(parameter, _bytes(case, "sk", secret_len),
                                          message, context)
