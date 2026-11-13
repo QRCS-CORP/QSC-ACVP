@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: qsc-acvp-sequential-qualification
+  group: qsc-acvp-ecc-hcg-offline
   cancel-in-progress: false
 
 jobs:
