@@ -65,10 +65,10 @@ from drbg_client import QscDrbg, build_response, registration
 
 
 def hmac_update(key, value, supplied):
-    key = hmac.new(key, value + b"\\x00" + supplied, hashlib.sha512).digest()
+    key = hmac.new(key, value + b"\x00" + supplied, hashlib.sha512).digest()
     value = hmac.new(key, value, hashlib.sha512).digest()
     if supplied:
-        key = hmac.new(key, value + b"\\x01" + supplied, hashlib.sha512).digest()
+        key = hmac.new(key, value + b"\x01" + supplied, hashlib.sha512).digest()
         value = hmac.new(key, value, hashlib.sha512).digest()
     return key, value
 
@@ -77,7 +77,7 @@ class ReferenceHmacDrbg:
     """Independent SP 800-90A HMAC_DRBG-SHA-512 reference state machine."""
 
     def __init__(self, entropy, nonce, personalization=b""):
-        self.key, self.value = hmac_update(b"\\x00" * 64, b"\\x01" * 64,
+        self.key, self.value = hmac_update(b"\x00" * 64, b"\x01" * 64,
                                             entropy + nonce + personalization)
 
     def reseed(self, entropy, additional=b""):
