@@ -86,7 +86,7 @@ jobs:
           recovery = out / 'verdict-client-tests.log'
           data = primary.read_text(encoding='utf-8') if primary.is_file() else ''
           verification = recovery.read_text(encoding='utf-8') if recovery.is_file() else ''
-          passed = (('\nOK\n' in data and 'Ran 26 tests' in data and
+          passed = (('\nOK\n' in data and 'Ran 28 tests' in data and
                      'FAILED' not in data and 'ERROR' not in data and 'skipped=' not in data)
                     and ('\nOK\n' in verification and 'Ran 6 tests' in verification and
                          'FAILED' not in verification and 'ERROR' not in verification
