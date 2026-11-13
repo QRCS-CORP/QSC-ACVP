@@ -100,6 +100,33 @@ class KdaHcgNativeTests(unittest.TestCase):
             self.assertEqual(answer, expected,
                              f"FAIL: native KDA-HKDF AFT {digest}")
 
+    def test_kda_native_large_party_fixed_info_both_revisions(self):
+        """Verify native SHA2 HKDF with both parties exceeding the old 1 KiB cap."""
+        reference = type("Reference", (), {"hkdf": staticmethod(oracle)})()
+        for revision in ("Sp800-56Cr1", "Sp800-56Cr2"):
+            for digest in ("SHA2-256", "SHA2-384", "SHA2-512"):
+                with self.subTest(revision=revision, digest=digest):
+                    request = vectors(revision=revision, digest=digest)
+                    case = request[1]["testGroups"][0]["tests"][0]
+                    case["fixedInfoPartyU"]["ephemeralData"] = "AB" * 4096
+                    case["fixedInfoPartyV"]["ephemeralData"] = "CD" * 4096
+                    actual = response(request, self.kdf)
+                    expected = response(request, reference)
+                    self.assertEqual(actual, expected,
+                                     f"FAIL: native large FixedInfo {revision} {digest}")
+
+    def test_kda_native_fixed_info_maximum_both_parties(self):
+        """Verify the entire registered 64 KiB per-party diagnostic bound."""
+        request = vectors(revision="Sp800-56Cr2", digest="SHA2-512")
+        case = request[1]["testGroups"][0]["tests"][0]
+        case["fixedInfoPartyU"]["ephemeralData"] = "21" * 65536
+        case["fixedInfoPartyV"]["ephemeralData"] = "43" * 65536
+        actual = response(request, self.kdf)
+        expected = response(request, type("Reference", (), {
+            "hkdf": staticmethod(oracle)})())
+        self.assertEqual(actual, expected,
+                         "FAIL: native HKDF with 128 KiB combined ephemeral FixedInfo")
+
     def test_kda_native_hkdf_val_all_registered_sha2(self):
         for digest in ("SHA2-256", "SHA2-384", "SHA2-512"):
             request = vectors(revision="Sp800-56Cr2", test_type="VAL", digest=digest)
