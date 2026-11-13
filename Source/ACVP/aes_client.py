@@ -331,10 +331,16 @@ def build_ctr_response(envelope: list, aes: QscAes) -> list:
             # AFT length metadata remains mandatory and strictly checked.
             if group['testType'] == 'CTR' and bits is None:
                 bits = len(source) * 8
-            if (len(key) * 8 != group['keyLen'] or len(iv) != 16 or
-                    type(bits) is not int or bits != len(source) * 8 or
-                    not 1 <= len(source) <= MAX_CTR_PAYLOAD):
-                raise ValueError('AES-CTR requires byte-aligned external-counter vectors')
+            if len(key) * 8 != group['keyLen']:
+                raise ValueError('AES-CTR key length mismatch')
+            if len(iv) != 16:
+                raise ValueError('AES-CTR IV length mismatch')
+            if type(bits) is not int:
+                raise ValueError('AES-CTR missing payload length')
+            if bits != len(source) * 8:
+                raise ValueError('AES-CTR payload length mismatch')
+            if not 1 <= len(source) <= MAX_CTR_PAYLOAD:
+                raise ValueError('AES-CTR payload outside supported range')
             output = aes.ctr(key, iv, source)
             answers.append({'tcId': case['tcId'], 'ct' if encrypt else 'pt': output.hex().upper()})
         groups.append({'tgId': group['tgId'], 'tests': answers})
