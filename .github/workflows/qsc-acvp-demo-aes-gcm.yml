@@ -1,0 +1,240 @@
+# NIST ACVTS Demo AES-GCM sample. Explicitly gated by an approved GitHub Environment.
+name: QSC ACVTS Demo authenticated AES-GCM sample (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      qsc_ref:
+        description: 'Immutable production QSC source revision'
+        required: true
+        type: string
+        default: '43c8aa2afe9d38c3ddf9bac0107196545981ac28'
+      approve_nist_network_session:
+        description: 'I authorize one real authenticated NIST Demo sample session'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-nist-demo-exclusive
+  cancel-in-progress: false
+
+jobs:
+  authenticated-demo-sample:
+    name: NIST Demo AES-GCM sample
+    if: github.repository == 'QRCS-CORP/QSC-ACVP'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: acvts-demo
+
+    steps:
+      - name: Require explicit operator authorization and protected environment
+        shell: bash
+        env:
+          REQUEST_APPROVAL: ${{ inputs.approve_nist_network_session }}
+          DEMO_ENABLED: ${{ vars.ACVTS_DEMO_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$REQUEST_APPROVAL" = true || { echo 'FAIL: live NIST session not approved in dispatch'; exit 1; }
+          test "$DEMO_ENABLED" = true || { echo 'FAIL: protected acvts-demo environment not enabled'; exit 1; }
+          echo 'PASS: explicit operator and environment approval'
+
+      - name: Checkout approved QSC qualification adapter
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Checkout immutable QSC dependency read-only
+        uses: actions/checkout@v4
+        with:
+          repository: QRCS-CORP/QSC
+          ref: ${{ inputs.qsc_ref }}
+          path: dependency/QSC
+          persist-credentials: false
+
+      - name: Verify QSC source provenance
+        shell: bash
+        env:
+          REQUIRED_SHA: ${{ inputs.qsc_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUIRED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'FAIL: expected immutable QSC commit SHA'; exit 1; }
+          actual="$(git -C dependency/QSC rev-parse HEAD)"
+          test "$actual" = "$REQUIRED_SHA" || { echo 'FAIL: QSC source SHA mismatch'; exit 1; }
+          echo "QSC_DEPENDENCY_SHA=$actual" >> "$GITHUB_ENV"
+          echo 'PASS: pinned QSC dependency revision verified'
+
+      - name: Compile minimal scalar SHA sample backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -S Source/ACVP -B "$RUNNER_TEMP/qsc-acvts-demo-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQSC_ACVP_TLS_CLASS=3 \
+            -DQSC_ACVP_ISA_PROFILE=scalar
+          cmake --build "$RUNNER_TEMP/qsc-acvts-demo-build" --target qsc_acvp_hash qsc_acvp_aes --parallel 2
+          test -s "$RUNNER_TEMP/qsc-acvts-demo-build/libqsc_acvp_hash.so"
+          test -s "$RUNNER_TEMP/qsc-acvts-demo-build/libqsc_acvp_aes.so"
+          echo 'PASS: source-pinned scalar hash and AES adapters'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify native QSC AES-GCM and required ECB known-answer vectors offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path("Source/ACVP").resolve()))
+          from aes_client import QscAes, ALGORITHM as GCM_ALGORITHM, ECB_ALGORITHM
+          from demo_client import registration
+
+          library = Path(os.environ["RUNNER_TEMP"]) / "qsc-acvts-demo-build/libqsc_acvp_aes.so"
+          aes = QscAes(library)
+          nonce = bytes(12)
+          zero_key128 = bytes(16)
+          zero_key256 = bytes(32)
+          tests = (
+              (zero_key128, b"", b"", "58e2fccefa7e3061367f1d57a4e7455a"),
+              (zero_key128, bytes(16), b"",
+               "0388dace60b6a392f328c2b971b2fe78ab6e47d42cec13bdf53a67b21257bddf"),
+              (zero_key128, b"12345678", bytes.fromhex("aabbccdd"),
+               "32bae9fa558094aa0789eae81a04eb1a37d5663a3ae9869e"),
+              (zero_key256, b"", b"", "530f8afbc74536b9a963b4f1c4cb738b"),
+              (zero_key256, bytes(16), b"",
+               "cea7403d4d606b6e074ec5d3baf39d18d0d1c8a799996bf0265b98b5d48ab919"),
+              (zero_key256, b"12345678", bytes.fromhex("aabbccdd"),
+               "ff95730978565c5633d488872a9705d0dc6495996485a80e")
+          )
+          for key, message, aad, expected_hex in tests:
+              passed, ciphertext, tag = aes.transform(key, nonce, aad, message)
+              if not passed or ciphertext + tag != bytes.fromhex(expected_hex):
+                  raise SystemExit("FAIL: pinned QSC AES-GCM encrypt known-answer test")
+              passed, plaintext, _ = aes.transform(key, nonce, aad, ciphertext, tag)
+              if not passed or plaintext != message:
+                  raise SystemExit("FAIL: pinned QSC AES-GCM decrypt known-answer test")
+              invalid_tag = bytes([tag[0] ^ 1]) + tag[1:]
+              passed, plaintext, _ = aes.transform(key, nonce, aad, ciphertext, invalid_tag)
+              if passed or plaintext:
+                  raise SystemExit("FAIL: AES-GCM invalid authentication tag accepted")
+
+          ecb_vectors = (
+              (bytes.fromhex("000102030405060708090a0b0c0d0e0f"),
+               bytes.fromhex("69c4e0d86a7b0430d8cdb78070b4c55a")),
+              (bytes.fromhex(
+                  "000102030405060708090a0b0c0d0e0f"
+                  "101112131415161718191a1b1c1d1e1f"),
+               bytes.fromhex("8ea2b7ca516745bfeafc49904b496089"))
+          )
+          block = bytes.fromhex("00112233445566778899aabbccddeeff")
+          for key, expected in ecb_vectors:
+              if aes.ecb(key, block, True) != expected:
+                  raise SystemExit("FAIL: pinned QSC AES-ECB prerequisite encryption")
+              if aes.ecb(key, expected, False) != block:
+                  raise SystemExit("FAIL: pinned QSC AES-ECB prerequisite decryption")
+
+          selection = registration((ECB_ALGORITHM, GCM_ALGORITHM))
+          capabilities = selection[1].get("algorithms", []) if len(selection) == 2 else []
+          if (len(selection) != 2 or selection[1].get("isSample") is not True or
+                  [item.get("algorithm") for item in capabilities] !=
+                  [ECB_ALGORITHM, GCM_ALGORITHM] or
+                  capabilities[1].get("prereqVals") !=
+                  [{"algorithm": ECB_ALGORITHM, "valValue": "same"}] or
+                  capabilities[1].get("ivGen") != "external" or
+                  capabilities[1].get("ivLen") != [96] or
+                  capabilities[1].get("tagLen") != [128]):
+              raise SystemExit("FAIL: AES-GCM prerequisite registration")
+          print("PASS: GCM 128/256 native KAT, invalid-tag rejection and ECB prerequisite")
+          PY
+
+      - name: Run credential-free AES-GCM adapter and Demo protocol regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q Source/ACVP
+          python -m unittest discover -s Source/ACVP/tests -p test_demo_client.py -v
+          python -m unittest discover -s Source/ACVP/tests -p test_aes_vectors.py -v
+          echo 'PASS: GCM and ECB ACVP AFT parser, prerequisite, mock Demo session'
+
+      - name: Materialize protected NIST mTLS and TOTP credentials
+        shell: bash
+        env:
+          NIST_CERT_B64: ${{ secrets.ACVTS_DEMO_CERT_B64 }}
+          NIST_KEY_B64: ${{ secrets.ACVTS_DEMO_KEY_B64 }}
+          NIST_TOTP_SEED_B64: ${{ secrets.ACVTS_DEMO_TOTP_B64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          test -n "$NIST_CERT_B64" || { echo 'FAIL: missing NIST certificate secret'; exit 1; }
+          test -n "$NIST_KEY_B64" || { echo 'FAIL: missing NIST private-key secret'; exit 1; }
+          test -n "$NIST_TOTP_SEED_B64" || { echo 'FAIL: missing NIST TOTP seed secret'; exit 1; }
+          printf '%s' "$NIST_CERT_B64" | base64 --decode > "$RUNNER_TEMP/acvts-demo-cert.pem"
+          printf '%s' "$NIST_KEY_B64" | base64 --decode > "$RUNNER_TEMP/acvts-demo-key.pem"
+          openssl x509 -noout -in "$RUNNER_TEMP/acvts-demo-cert.pem" >/dev/null
+          openssl pkey -noout -in "$RUNNER_TEMP/acvts-demo-key.pem" >/dev/null
+          cert_key="$(openssl x509 -in "$RUNNER_TEMP/acvts-demo-cert.pem" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')"
+          private_key="$(openssl pkey -in "$RUNNER_TEMP/acvts-demo-key.pem" -pubout -outform DER | sha256sum | awk '{print $1}')"
+          test "$cert_key" = "$private_key" || { echo 'FAIL: NIST mTLS certificate and private key do not match'; exit 1; }
+          echo 'PASS: NIST identity material loaded without disclosing credentials'
+
+      # One authenticated session with ECB and GCM in the same registration.
+      # The ECB prerequisite MUST use valValue "same", not a Demo-only certificate.
+      - name: Run exactly one live NIST Demo AES-GCM and ECB prerequisite sample
+        shell: bash
+        env:
+          ACVP_TOTP_SEED: ${{ secrets.ACVTS_DEMO_TOTP_B64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          output="$RUNNER_TEMP/qsc-acvp-demo-verified-results"
+          mkdir -p "$output"
+          python Source/ACVP/demo_client.py \
+            --library "$RUNNER_TEMP/qsc-acvts-demo-build/libqsc_acvp_hash.so" \
+            --aes-library "$RUNNER_TEMP/qsc-acvts-demo-build/libqsc_acvp_aes.so" \
+            --cert "$RUNNER_TEMP/acvts-demo-cert.pem" \
+            --key "$RUNNER_TEMP/acvts-demo-key.pem" \
+            --output "$output" \
+            --algorithms ACVP-AES-ECB ACVP-AES-GCM
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          p = Path(os.environ['RUNNER_TEMP']) / 'qsc-acvp-demo-verified-results/demo-results.json'
+          data = json.loads(p.read_text(encoding='utf-8'))
+          if (data.get('status') != 'PASS_DEMO_SAMPLE' or
+                  data.get('registration_algorithms') != ['ACVP-AES-ECB', 'ACVP-AES-GCM'] or
+                  data.get('server_passed') is not True or
+                  len(data.get('vectors', [])) != 2 or
+                  {item.get('algorithm') for item in data['vectors']} !=
+                      {'ACVP-AES-ECB', 'ACVP-AES-GCM'} or
+                  any(item.get('status') != 'SUBMITTED' for item in data['vectors'])):
+              raise SystemExit('FAIL: NIST Demo AES-GCM did not produce an actual PASS verdict')
+          print('PASS: NIST Demo server returned a passing AES-GCM sample verdict')
+          PY
+
+      - name: Delete ephemeral NIST certificate and private key
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -f "$RUNNER_TEMP/acvts-demo-cert.pem" "$RUNNER_TEMP/acvts-demo-key.pem"
+
+      - name: Upload sanitized Demo verdict only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-acvp-real-nist-demo-aes-gcm-sample
+          path: ${{ runner.temp }}/qsc-acvp-demo-verified-results/demo-results.json
+          if-no-files-found: warn
+          retention-days: 7
