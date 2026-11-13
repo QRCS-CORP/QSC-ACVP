@@ -123,6 +123,34 @@ class AesModesVectorTests(unittest.TestCase):
         reply = build_ctr_response(self.ctr_request(test_type='CTR', direction='decrypt'), StubAes())
         self.assertEqual(reply[1]['testGroups'][0]['tests'][0], {'tcId': 7, 'pt': 'A6' * 17})
 
+    def test_ctr_counter_without_payload_len_long_message(self):
+        """ACVP counter tests omit payloadLen and exercise many counter blocks."""
+        for direction in ("encrypt", "decrypt"):
+            request = self.ctr_request(test_type='CTR', direction=direction)
+            group = request[1]['testGroups'][0]
+            case = group['tests'][0]
+            case.pop('payloadLen')
+            field = 'pt' if direction == 'encrypt' else 'ct'
+            response_field = 'ct' if direction == 'encrypt' else 'pt'
+            case[field] = '03' * 4096
+            result = build_ctr_response(request, StubAes())
+            self.assertEqual(result[1]['testGroups'][0]['tests'][0],
+                             {'tcId': 7, response_field: 'A6' * 4096})
+
+    def test_ctr_counter_reject_wrong_explicit_payload_len(self):
+        """When counter test length metadata is supplied, it must be accurate."""
+        request = self.ctr_request(test_type='CTR')
+        request[1]['testGroups'][0]['tests'][0]['payloadLen'] = 128
+        with self.assertRaises(ValueError):
+            build_ctr_response(request, StubAes())
+
+    def test_ctr_aft_requires_payload_len(self):
+        """Omitted AFT payloadLen must not silently inherit the CTR exception."""
+        request = self.ctr_request(test_type='AFT')
+        request[1]['testGroups'][0]['tests'][0].pop('payloadLen')
+        with self.assertRaises(ValueError):
+            build_ctr_response(request, StubAes())
+
     def test_ctr_reject_nonmatching_payload_length(self):
         body = self.ctr_request()
         body[1]['testGroups'][0]['tests'][0]['payloadLen'] = 128
