@@ -1,0 +1,78 @@
+# Credential-free qualification of pinned QSC HCG and CSG DRBG implementations.
+name: QSC ACVP DRBG HCG and CSG offline qualification
+on:
+  workflow_dispatch:
+    inputs:
+      qsc_ref:
+        description: 'Immutable QSC commit containing updated HCG and CSG'
+        required: true
+        type: string
+        default: '5d85f25866f9fa08654791265f08f43f95674a53'
+permissions:
+  contents: read
+concurrency:
+  group: qsc-acvp-sequential-qualification
+  cancel-in-progress: false
+jobs:
+  drbg:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: QRCS-CORP/QSC
+          ref: ${{ inputs.qsc_ref }}
+          path: dependency/QSC
+          persist-credentials: false
+      - name: Verify source revision
+        shell: bash
+        env:
+          SOURCE_REF: ${{ inputs.qsc_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REF" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          test "$(git -C dependency/QSC rev-parse HEAD)" = "$SOURCE_REF"
+          grep -q 'qsc_hcg_instantiate' dependency/QSC/Source/QSC/hcg.h
+          grep -q 'qsc_csg_instantiate' dependency/QSC/Source/QSC/csg.h
+          echo "PASS: pinned HCG/CSG native implementation availability"
+      - name: Build isolated scalar native DRBG backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -S Source/ACVP -B "$RUNNER_TEMP/qsc-drbg-build" \
+            -DCMAKE_BUILD_TYPE=Release -DQSC_ACVP_TLS_CLASS=3 \
+            -DQSC_ACVP_ISA_PROFILE=scalar
+          cmake --build "$RUNNER_TEMP/qsc-drbg-build" --target qsc_acvp_drbg --parallel 2
+          test -s "$RUNNER_TEMP/qsc-drbg-build/libqsc_acvp_drbg.so"
+          echo "PASS: scalar HCG/CSG native build"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify ACVP protocol and native DRBG KAT cases
+        shell: bash
+        env:
+          QSC_ACVP_DRBG_LIBRARY: ${{ runner.temp }}/qsc-drbg-build/libqsc_acvp_drbg.so
+        run: |
+          set -euo pipefail
+          python -m compileall -q Source/ACVP
+          PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
+            python -m unittest test_drbg_native.DrbgNativeTests -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-drbg-native-tests.log"
+          grep -Eq '^Ran 9 tests in' "$RUNNER_TEMP/qsc-drbg-native-tests.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-drbg-native-tests.log"
+          if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-drbg-native-tests.log"; then
+            echo "FAIL: HCG/CSG native qualification tests" >&2
+            exit 1
+          fi
+          echo "PASS: HCG SP800-90A candidate and CSG research-vector checks"
+      - name: Preserve nonsecret offline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-drbg-hcg-csg-offline
+          path: ${{ runner.temp }}/qsc-drbg-native-tests.log
+          if-no-files-found: warn
+          retention-days: 14
