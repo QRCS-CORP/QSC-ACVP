@@ -1,6 +1,18 @@
 # Credential-free qualification of pinned QSC HCG and CSG DRBG implementations.
 name: QSC ACVP DRBG HCG and CSG offline qualification
 on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+    paths:
+      - 'Source/ACVP/drbg_client.py'
+      - 'Source/ACVP/qsc_drbg_bridge.c'
+      - 'Source/ACVP/tests/test_drbg_native.py'
+      - 'Source/ACVP/CMakeLists.txt'
+      - '.github/workflows/qsc-acvp-drbg-hcg-csg-offline.yml'
   workflow_dispatch:
     inputs:
       qsc_ref:
