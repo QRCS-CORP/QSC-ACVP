@@ -345,6 +345,20 @@ class KdaHkdfSchemaTests(unittest.TestCase):
         self.assertFalse(any(method == "POST" and path == server.vector + "/results"
                              for method, path, _, _ in server.calls))
 
+    def test_oversized_party_ephemeral_is_rejected_before_native_hkdf(self):
+        """Enforce 64 KiB per-party bounds independently of the HKDF backend."""
+        for revision in ("Sp800-56Cr1", "Sp800-56Cr2"):
+            with self.subTest(revision=revision):
+                request = vectors(revision=revision)
+                case = request[1]["testGroups"][0]["tests"][0]
+                case["fixedInfoPartyV"]["ephemeralData"] = "A1" * 65537
+                with self.assertRaises(KdaHexError) as caught:
+                    response(request, object())
+                self.assertEqual(
+                    (caught.exception.field, caught.exception.issue),
+                    ("V_EPHEMERAL", "TOO_LONG"),
+                    f"FAIL: bound oversized Party V ephemeral for {revision}")
+
     def test_default_salt_omitted_derives_expected_dkm(self):
         """Both KDA revisions accept omitted salt for default-salt groups."""
         reference = type("Reference", (), {"hkdf": staticmethod(oracle)})()
