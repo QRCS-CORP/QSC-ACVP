@@ -133,6 +133,27 @@ class KdaHkdfSchemaTests(unittest.TestCase):
                                     SELECTION), "ACVP-123")
         self.assertEqual(result[1]["algorithms"][-2]["algorithm"], "KDA")
 
+    def test_same_session_hcg_prerequisite_registration(self):
+        """KDA-HKDF may use HCG only when explicitly registered together."""
+        with self.assertRaises(ValueError):
+            registration("same")
+        with self.assertRaises(ValueError):
+            demo_registration(("SHA2-256", "SHA2-384", "SHA2-512",
+                               "HMAC-SHA2-256", "HMAC-SHA2-384",
+                               "HMAC-SHA2-512", SELECTION), "same")
+        selected = ("SHA2-256", "SHA2-384", "SHA2-512",
+                    "HMAC-SHA2-256", "HMAC-SHA2-384",
+                    "HMAC-SHA2-512", "hmacDRBG", SELECTION)
+        algorithms = demo_registration(selected, "same")[1]["algorithms"]
+        self.assertEqual([item["algorithm"] for item in algorithms[-3:]],
+                         ["hmacDRBG", "KDA", "KDA"])
+        for item in algorithms[-2:]:
+            self.assertEqual(item["prereqVals"][0],
+                             {"algorithm": "DRBG", "valValue": "same"})
+        with self.assertRaises(ValueError):
+            demo_registration(tuple(x for x in selected if x != "HMAC-SHA2-512"),
+                              "same")
+
     def test_r1_aft_matches_independent_reference(self):
         inp = vectors()
         class Independent:
