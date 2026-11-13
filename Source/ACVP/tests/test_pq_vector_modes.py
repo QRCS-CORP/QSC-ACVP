@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from demo_client import registration
-from mldsa_client import build_mldsa_response
+from mldsa_client import PARAMETERS as MLDSA_PARAMETERS, build_mldsa_response
 from slhdsa_client import build_slhdsa_response
 from local_client import build_response
 
@@ -69,6 +69,126 @@ class PqVectorModeTests(unittest.TestCase):
                  "keyFormat": "expanded", "tests": []}
         with self.assertRaises(ValueError):
             build_mldsa_response(vector("ML-DSA", "sigGen", "FIPS204-tr1", group), FakeDsa())
+
+    def test_mldsa_registration_requires_both_shake_prerequisites(self):
+        """ACVP ML-DSA advertises all three modes with same-session SHAKE."""
+        required = ("SHAKE-128", "SHAKE-256")
+        for missing in required:
+            selected = tuple(x for x in required if x != missing) + ("ML-DSA",)
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                registration(selected)
+        caps = registration(required + ("ML-DSA",))[1]["algorithms"][-3:]
+        self.assertEqual([c["mode"] for c in caps], ["keyGen", "sigGen", "sigVer"])
+        self.assertEqual([c["revision"] for c in caps],
+                         ["FIPS204", "FIPS204-tr1", "FIPS204"])
+        for capability in caps:
+            self.assertEqual(capability["prereqVals"],
+                             [{"algorithm": "SHA", "valValue": "same"}])
+
+    def test_mldsa_multigroup_keygen_parameter_sizes(self):
+        """One FIPS 204 vector set may contain all three parameter sets."""
+        class QualifiedDsa:
+            def keygen(self, name, seed):
+                return (b"\\x11" * MLDSA_PARAMETERS[name][1],
+                        b"\\x22" * MLDSA_PARAMETERS[name][2])
+        groups = [{"tgId": index, "testType": "AFT", "parameterSet": name,
+                   "tests": [{"tcId": index + 20, "seed": "01" * 32}]}
+                  for index, name in enumerate(MLDSA_PARAMETERS, 1)]
+        request = vector("ML-DSA", "keyGen", "FIPS204", groups[0])
+        request[1]["testGroups"] = groups
+        answer = build_mldsa_response(request, QualifiedDsa())[1]["testGroups"]
+        self.assertEqual([g["tgId"] for g in answer], [1, 2, 3])
+        for requested, actual in zip(groups, answer):
+            name = requested["parameterSet"]
+            self.assertEqual(actual["tests"][0]["tcId"], requested["tests"][0]["tcId"])
+            self.assertEqual(len(actual["tests"][0]["pk"]), MLDSA_PARAMETERS[name][1] * 2)
+            self.assertEqual(len(actual["tests"][0]["sk"]), MLDSA_PARAMETERS[name][2] * 2)
+
+    def test_mldsa_multigroup_pure_signing_context_boundaries(self):
+        """Deterministic external pure sigGen accepts empty and 255-byte context."""
+        class QualifiedDsa:
+            def sign(self, name, sk, message, context):
+                return b"\\xA6" * MLDSA_PARAMETERS[name][3]
+        groups = []
+        for index, name in enumerate(MLDSA_PARAMETERS, 1):
+            groups.append({"tgId": index, "testType": "AFT", "parameterSet": name,
+                           "signatureInterface": "external", "preHash": "pure",
+                           "deterministic": True, "keyFormat": "expanded",
+                           "tests": [
+                               {"tcId": index * 10, "sk": "33" * MLDSA_PARAMETERS[name][2],
+                                "message": "01", "context": ""},
+                               {"tcId": index * 10 + 1,
+                                "sk": "33" * MLDSA_PARAMETERS[name][2],
+                                "message": "ab" * 32, "context": "ff" * 255}]})
+        request = vector("ML-DSA", "sigGen", "FIPS204-tr1", groups[0])
+        request[1]["testGroups"] = groups
+        result = build_mldsa_response(request, QualifiedDsa())[1]["testGroups"]
+        self.assertEqual([g["tgId"] for g in result], [1, 2, 3])
+        for original, actual in zip(groups, result):
+            self.assertEqual([a["tcId"] for a in actual["tests"]],
+                             [t["tcId"] for t in original["tests"]])
+            for item in actual["tests"]:
+                self.assertEqual(len(item["signature"]),
+                                 MLDSA_PARAMETERS[original["parameterSet"]][3] * 2)
+
+    def test_mldsa_multigroup_pure_verification_valid_and_invalid(self):
+        """ACVP sigVer AFT supplies testPassed for each signature independently."""
+        class QualifiedDsa:
+            def verify(self, name, pk, message, context, signature):
+                return signature[0] == 0xA6
+        groups = []
+        for index, name in enumerate(MLDSA_PARAMETERS, 1):
+            groups.append({"tgId": index, "testType": "AFT", "parameterSet": name,
+                           "signatureInterface": "external", "preHash": "pure",
+                           "tests": [
+                               {"tcId": 3 * index, "pk": "11" * MLDSA_PARAMETERS[name][1],
+                                "message": "ab", "context": "",
+                                "signature": "a6" * MLDSA_PARAMETERS[name][3]},
+                               {"tcId": 3 * index + 1,
+                                "pk": "11" * MLDSA_PARAMETERS[name][1],
+                                "message": "ab", "context": "01",
+                                "signature": "00" * MLDSA_PARAMETERS[name][3]}]})
+        request = vector("ML-DSA", "sigVer", "FIPS204", groups[0])
+        request[1]["testGroups"] = groups
+        actual = build_mldsa_response(request, QualifiedDsa())[1]["testGroups"]
+        for group in actual:
+            self.assertEqual([entry["testPassed"] for entry in group["tests"]],
+                             [True, False])
+
+    def test_mldsa_rejects_zero_length_message_and_unsupported_forms(self):
+        """Do not accept unadvertised empty messages, preHash or seed key format."""
+        valid = {"tgId": 1, "testType": "AFT", "parameterSet": "ML-DSA-44",
+                 "signatureInterface": "external", "preHash": "pure",
+                 "deterministic": True, "keyFormat": "expanded",
+                 "tests": [{"tcId": 1, "sk": "22" * 2560,
+                            "message": "", "context": ""}]}
+        with self.assertRaisesRegex(ValueError, "message outside registered length"):
+            build_mldsa_response(
+                vector("ML-DSA", "sigGen", "FIPS204-tr1", valid), FakeDsa())
+        for key, value in (("preHash", "preHash"), ("keyFormat", "seed"),
+                           ("deterministic", False), ("signatureInterface", "internal")):
+            group = dict(valid)
+            group[key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                build_mldsa_response(
+                    vector("ML-DSA", "sigGen", "FIPS204-tr1", group), FakeDsa())
+
+    def test_mldsa_rejects_mismatched_revisions_and_invalid_context(self):
+        """Revisions and context bounds must match registered ACVP capabilities."""
+        for mode, revision in (("keyGen", "FIPS204-tr1"), ("sigGen", "FIPS204"),
+                               ("sigVer", "FIPS204-tr1")):
+            group = {"tgId": 1, "testType": "AFT", "parameterSet": "ML-DSA-44",
+                     "tests": []}
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                build_mldsa_response(vector("ML-DSA", mode, revision, group), FakeDsa())
+        group = {"tgId": 1, "testType": "AFT", "parameterSet": "ML-DSA-44",
+                 "signatureInterface": "external", "preHash": "pure",
+                 "deterministic": True, "keyFormat": "expanded",
+                 "tests": [{"tcId": 1, "sk": "22" * 2560, "message": "ab",
+                            "context": "00" * 256}]}
+        with self.assertRaises(ValueError):
+            build_mldsa_response(
+                vector("ML-DSA", "sigGen", "FIPS204-tr1", group), FakeDsa())
 
     def test_slhdsa_seeded_keygen_vector(self):
         group = {"tgId": 1, "testType": "AFT", "parameterSet": "SLH-DSA-SHAKE-128s",
