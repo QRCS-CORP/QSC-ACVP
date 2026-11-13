@@ -423,7 +423,7 @@ class KdaHkdfSchemaTests(unittest.TestCase):
         with self.assertRaises(KdaHexError) as context:
             response(request, object())
         self.assertEqual((context.exception.field, context.exception.issue),
-                         ("U_PARTY_ID", "TYPE"))
+                         ("U_PARTY_ID", "MISSING"))
 
     def test_mock_authenticated_demo_session_sanitizes_tokens(self):
         from test_demo_client import FakeTransport
