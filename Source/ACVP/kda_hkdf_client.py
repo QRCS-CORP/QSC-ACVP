@@ -68,13 +68,14 @@ REVISIONS = ("Sp800-56Cr1", "Sp800-56Cr2")
 FIXED_INFO = "uPartyInfo||vPartyInfo||l"
 
 
-def registration(drbg_validation: str) -> list[dict]:
-    """Require independently verified DRBG prerequisite before live registration."""
-    invalid = ("same", "pending", "none", "not-validated",
+def registration(drbg_validation: str, allow_same_session: bool = False) -> list[dict]:
+    """Register HKDF with either an external DRBG reference or a same-session HCG."""
+    invalid = ("pending", "none", "not-validated",
                "hcg", "csg", "qsc-hcg", "qsc-csg")
     if (not isinstance(drbg_validation, str) or not drbg_validation.strip() or
-            drbg_validation.strip().lower() in invalid):
-        raise ValueError("Verified external DRBG validation is required")
+            drbg_validation.strip().lower() in invalid or
+            (drbg_validation.strip().lower() == "same" and not allow_same_session)):
+        raise ValueError("KDA-HKDF requires a registered DRBG prerequisite")
     capabilities = []
     for revision in REVISIONS:
         item = {

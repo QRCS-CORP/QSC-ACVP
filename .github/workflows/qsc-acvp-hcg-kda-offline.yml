@@ -1,0 +1,113 @@
+# Credential-free native HCG and HKDF prerequisite integration regression.
+name: QSC ACVP HCG KDA-HKDF offline qualification
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+    paths:
+      - 'Source/ACVP/demo_client.py'
+      - 'Source/ACVP/kda_hkdf_client.py'
+      - 'Source/ACVP/tests/test_kda_hkdf_vectors.py'
+      - 'Source/ACVP/tests/test_kda_hcg_native.py'
+      - '.github/workflows/qsc-acvp-hcg-kda-offline.yml'
+      - '.github/workflows/qsc-acvp-demo-hcg-kda-hkdf.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: qsc-acvp-sequential-qualification
+  cancel-in-progress: false
+jobs:
+  hcg-kda:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: QRCS-CORP/QSC
+          ref: '5d85f25866f9fa08654791265f08f43f95674a53'
+          path: dependency/QSC
+          persist-credentials: false
+      - name: Verify QSC source revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C dependency/QSC rev-parse HEAD)" = "5d85f25866f9fa08654791265f08f43f95674a53"
+          echo 'PASS: QSC HCG and HKDF source pin'
+      - name: Check protected NIST workflow YAML structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -e 'require "yaml"; YAML.load_file(ARGV.fetch(0)); puts "PASS: KDA-HKDF NIST workflow YAML syntax"' \
+            .github/workflows/qsc-acvp-demo-hcg-kda-hkdf.yml
+
+      - name: Compile native HCG and HKDF libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -S Source/ACVP -B "$RUNNER_TEMP/qsc-hcg-kda-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQSC_ACVP_TLS_CLASS=3 \
+            -DQSC_ACVP_ISA_PROFILE=scalar
+          cmake --build "$RUNNER_TEMP/qsc-hcg-kda-build" \
+            --target qsc_acvp_hash qsc_acvp_drbg --parallel 2
+          test -s "$RUNNER_TEMP/qsc-hcg-kda-build/libqsc_acvp_hash.so"
+          test -s "$RUNNER_TEMP/qsc-hcg-kda-build/libqsc_acvp_drbg.so"
+          echo 'PASS: native SHA2/HMAC/HKDF and HCG build'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify native DRBG and KDA/HKDF regression suites
+        shell: bash
+        env:
+          QSC_ACVP_DRBG_LIBRARY: ${{ runner.temp }}/qsc-hcg-kda-build/libqsc_acvp_drbg.so
+          QSC_ACVP_HASH_LIBRARY: ${{ runner.temp }}/qsc-hcg-kda-build/libqsc_acvp_hash.so
+        run: |
+          set -euo pipefail
+          python -m compileall -q Source/ACVP
+          PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
+            python -m unittest \
+              test_drbg_native.DrbgNativeTests \
+              test_kda_hkdf_vectors.KdaHkdfSchemaTests \
+              test_kda_hcg_native.KdaHcgNativeTests -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-hcg-kda-native-tests.log"
+          grep -Eq '^Ran 31 tests in' "$RUNNER_TEMP/qsc-hcg-kda-native-tests.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-hcg-kda-native-tests.log"
+          if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-hcg-kda-native-tests.log"; then
+            echo 'FAIL: HCG and native KDA-HKDF regression suite' >&2
+            exit 1
+          fi
+          echo 'PASS: 31 HCG and native KDA-HKDF tests'
+      - name: Verify Demo and ECC adapter compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check cryptography==46.0.4
+          PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
+            python -m unittest \
+              test_demo_client.DemoClientTests \
+              test_ecc_vectors.ECCVectorTests -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-hcg-kda-adapter-tests.log"
+          grep -Eq '^Ran 55 tests in' "$RUNNER_TEMP/qsc-hcg-kda-adapter-tests.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-hcg-kda-adapter-tests.log"
+          if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-hcg-kda-adapter-tests.log"; then
+            echo 'FAIL: Demo/ECC adapter regression suite' >&2
+            exit 1
+          fi
+          echo 'PASS: 55 Demo and ECC adapter tests'
+      - name: Upload nonsecret offline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-hcg-kda-offline-evidence
+          path: |
+            ${{ runner.temp }}/qsc-hcg-kda-native-tests.log
+            ${{ runner.temp }}/qsc-hcg-kda-adapter-tests.log
+          if-no-files-found: warn
+          retention-days: 14

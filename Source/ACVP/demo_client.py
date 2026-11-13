@@ -135,6 +135,8 @@ def registration(algorithms: tuple[str, ...] = SHA_ALGORITHMS,
         raise ValueError("hmacDRBG requires SHA2-512 and HMAC-SHA2-512 in the same session")
     if KDA_HKDF in algorithms and not {"HMAC-SHA2-256", "HMAC-SHA2-384", "HMAC-SHA2-512"}.issubset(algorithms):
         raise ValueError("KDA-HKDF requires HMAC-SHA2 prerequisites in the same session")
+    if drbg_validation == "same" and "hmacDRBG" not in algorithms:
+        raise ValueError("Same-session DRBG prerequisite requires hmacDRBG registration")
     if "KAS-ECC-SSC" in algorithms and "ECDSA" not in algorithms:
         raise ValueError("KAS-ECC-SSC requires ECDSA prerequisite in the same session")
     if any(name in algorithms for name in ("ECDSA", "DetECDSA")) and not {
@@ -147,7 +149,9 @@ def registration(algorithms: tuple[str, ...] = SHA_ALGORITHMS,
         if name == "hmacDRBG":
             capabilities.append(drbg_registration())
         elif name == KDA_HKDF:
-            capabilities.extend(kda_hkdf_registration(drbg_validation))
+            capabilities.extend(kda_hkdf_registration(
+                drbg_validation, allow_same_session=(drbg_validation == "same" and
+                                                     "hmacDRBG" in algorithms)))
         elif name == "PBKDF":
             capabilities.append(pbkdf_registration())
         elif name in ("ECDSA", "DetECDSA", "EDDSA", "XECDH", "KAS-ECC-SSC"):
@@ -748,10 +752,15 @@ def main() -> int:
         parser.error("ECC tests require the complete QSC ECC library, including P-384")
     drbg_validation = os.environ.get("ACVP_ECC_DRBG_VALIDATION")
     kda_drbg_validation = os.environ.get("ACVP_KDA_DRBG_VALIDATION")
-    if KDA_HKDF in args.algorithms and not kda_drbg_validation:
-        parser.error("KDA-HKDF requires ACVP_KDA_DRBG_VALIDATION (verified DRBG prerequisite)")
-    if KDA_HKDF in args.algorithms and not drbg_validation:
-        drbg_validation = kda_drbg_validation
+    if KDA_HKDF in args.algorithms:
+        if "hmacDRBG" in args.algorithms:
+            if kda_drbg_validation not in (None, "", "same"):
+                parser.error("KDA-HKDF same-session mode cannot use an external DRBG reference")
+            drbg_validation = "same"
+        elif not kda_drbg_validation:
+            parser.error("KDA-HKDF requires ACVP_KDA_DRBG_VALIDATION or same-session hmacDRBG")
+        elif not drbg_validation:
+            drbg_validation = kda_drbg_validation
     if ecc_selected and not drbg_validation:
         parser.error("ECC registration requires ACVP_ECC_DRBG_VALIDATION (verified DRBG prerequisite)")
     if ecc_selected and os.environ.get("ACVP_ECC_RNG_QUALIFIED") != "1":
