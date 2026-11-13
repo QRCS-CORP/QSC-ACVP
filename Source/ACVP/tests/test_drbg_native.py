@@ -236,5 +236,118 @@ class DrbgNativeTests(unittest.TestCase):
             native.dispose()
 
 
+    def test_hcg_acvp_explicit_reseed_vector(self):
+        entropy = bytes(range(32))
+        nonce = bytes(range(32, 48))
+        personalization = bytes(range(48, 80))
+        fresh = bytes(range(80, 112))
+        reseed_additional = bytes(range(112, 144))
+        generate_first = bytes(range(144, 176))
+        generate_second = bytes(range(176, 208))
+        ref = ReferenceHmacDrbg(entropy, nonce, personalization)
+        ref.reseed(fresh, reseed_additional)
+        ref.generate(64, generate_first)
+        expected = ref.generate(64, generate_second)
+        sample = [{"acvVersion": "1.0"}, {"algorithm": "hmacDRBG",
+                  "revision": "SP800-90Ar1", "vsId": 31,
+                  "testGroups": [{"tgId": 7, "testType": "AFT", "mode": "SHA2-512",
+                  "predResistance": False, "reSeed": True, "entropyInputLen": 256,
+                  "nonceLen": 128, "persoStringLen": 256,
+                  "additionalInputLen": 256, "returnedBitsLen": 512,
+                  "tests": [{"tcId": 17, "entropyInput": entropy.hex(),
+                  "nonce": nonce.hex(), "persoString": personalization.hex(),
+                  "otherInput": [
+                      {"intendedUse": "reSeed", "additionalInput": reseed_additional.hex(),
+                       "entropyInput": fresh.hex()},
+                      {"intendedUse": "generate", "additionalInput": generate_first.hex(),
+                       "entropyInput": ""},
+                      {"intendedUse": "generate", "additionalInput": generate_second.hex(),
+                       "entropyInput": ""}
+                  ]}]}]}]
+        native = QscDrbg(self.library)
+        actual = build_response(sample, native)[1]["testGroups"][0]["tests"][0]["returnedBits"]
+        self.assertEqual(actual, expected.hex().upper(),
+                         "FAIL: HCG ACVP explicit reseed/second generate mismatch")
+
+    def test_hcg_combined_seed_without_separate_nonce(self):
+        combined = bytes(range(48))
+        ref = ReferenceHmacDrbg(combined, b"")
+        native = QscDrbg(self.library)
+        native.instantiate(combined)
+        try:
+            self.assertEqual(native.generate(96), ref.generate(96),
+                             "FAIL: HCG combined-entropy instantiate")
+        finally:
+            native.dispose()
+
+    def test_hcg_unaligned_generate_lengths(self):
+        entropy, nonce = bytes(range(32)), bytes(range(32, 48))
+        ref = ReferenceHmacDrbg(entropy, nonce)
+        native = QscDrbg(self.library)
+        native.instantiate(entropy, nonce)
+        try:
+            for n in (1, 63, 65, 129, 344, 513):
+                self.assertEqual(native.generate(n), ref.generate(n),
+                                 f"FAIL: HCG unaligned request length {n}")
+        finally:
+            native.dispose()
+
+    def test_hcg_acvp_rejects_malformed_reseed_vector(self):
+        entropy, nonce = bytes(range(32)), bytes(range(32, 48))
+        group = {"tgId": 1, "testType": "AFT", "mode": "SHA2-512",
+                 "predResistance": False, "reSeed": True,
+                 "entropyInputLen": 256, "nonceLen": 128,
+                 "persoStringLen": 0, "additionalInputLen": 0,
+                 "returnedBitsLen": 512, "tests": [
+                     {"tcId": 11, "entropyInput": entropy.hex(), "nonce": nonce.hex(),
+                      "persoString": "", "otherInput": [
+                          {"intendedUse": "generate", "additionalInput": "",
+                           "entropyInput": ""},
+                          {"intendedUse": "generate", "additionalInput": "",
+                           "entropyInput": ""}]}]}
+        sample = [{"acvVersion": "1.0"}, {"algorithm": "hmacDRBG",
+                  "revision": "SP800-90Ar1", "vsId": 51, "testGroups": [group]}]
+        native = QscDrbg(self.library)
+        with self.assertRaisesRegex(ValueError, "Incomplete"):
+            build_response(sample, native)
+
+    def test_csg_candidate_multigenerate(self):
+        seed = bytes(range(48))
+        ref = ReferenceXdrbg(seed)
+        native = QscDrbg(self.library, "csg")
+        native.instantiate(seed)
+        try:
+            for n in (1, 64, 65, 344):
+                self.assertEqual(native.generate(n), ref.generate(n),
+                                 f"FAIL: CSG XDRBG output length {n}")
+        finally:
+            native.dispose()
+
+    def test_csg_candidate_request_bounds(self):
+        native = QscDrbg(self.library, "csg")
+        with self.assertRaisesRegex(ValueError, "generate"):
+            native.generate(1)
+        native.instantiate(bytes(range(48)))
+        try:
+            with self.assertRaisesRegex(ValueError, "generate"):
+                native.generate(345)
+            with self.assertRaisesRegex(ValueError, "generate"):
+                native.generate(0)
+        finally:
+            native.dispose()
+
+    def test_hcg_acvp_prerequisites_enforced(self):
+        from demo_client import registration as demo_registration
+        with self.assertRaisesRegex(ValueError, "SHA2-512"):
+            demo_registration(("hmacDRBG",))
+        with self.assertRaisesRegex(ValueError, "SHA2-512"):
+            demo_registration(("HMAC-SHA2-512", "hmacDRBG"))
+        self.assertEqual([c["algorithm"] for c in
+                         demo_registration(("SHA2-512", "HMAC-SHA2-512", "hmacDRBG"))[1]["algorithms"]],
+                         ["SHA2-512", "HMAC-SHA2-512", "hmacDRBG"],
+                         "FAIL: hmacDRBG same-session SHA/HMAC registration")
+
+
+
 if __name__ == "__main__":
     unittest.main()
