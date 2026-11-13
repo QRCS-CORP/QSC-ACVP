@@ -327,6 +327,10 @@ def build_ctr_response(envelope: list, aes: QscAes) -> list:
             iv = _required_hex(case, 'iv')
             source = _required_hex(case, 'pt' if encrypt else 'ct')
             bits = case.get('payloadLen', group.get('payloadLen'))
+            # Counter test vectors may omit payloadLen and supply a long message.
+            # AFT length metadata remains mandatory and strictly checked.
+            if group['testType'] == 'CTR' and bits is None:
+                bits = len(source) * 8
             if (len(key) * 8 != group['keyLen'] or len(iv) != 16 or
                     type(bits) is not int or bits != len(source) * 8 or
                     not 1 <= len(source) <= MAX_CTR_PAYLOAD):
