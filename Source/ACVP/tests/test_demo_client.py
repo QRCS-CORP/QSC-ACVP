@@ -368,6 +368,68 @@ class DemoClientTests(unittest.TestCase):
         self.assertNotIn("sensitive-gcm-internal-text", str(report))
         self.assertNotIn("private-session-token", str(report))
 
+    def test_mlkem_incomplete_registration_mode_fails_closed(self):
+        """Submitting keyGen alone cannot satisfy an advertised encapDecap mode."""
+        class KeyGenOnly(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": "ML-KEM", "mode": "keyGen",
+                             "revision": "FIPS203",
+                             "testGroups": [{"tgId": 1, "testType": "AFT",
+                                             "parameterSet": "ML-KEM-512",
+                                             "tests": [{"tcId": 1, "d": "AB" * 32,
+                                                        "z": "CD" * 32}]}]}]
+                return super().request(method, path, token, body)
+
+        class NativeKem:
+            def keygen(self, parameter, d, z):
+                return b"\x01" * 800, b"\x02" * 1632
+
+        server = KeyGenOnly()
+        qsc = Oracle()
+        qsc.kem = NativeKem()
+        report = client.execute(
+            server, qsc, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            ("SHA3-256", "SHA3-512", "SHAKE-128", "SHAKE-256", "ML-KEM"),
+            poll_count=1)
+        self.assertEqual(report["status"], "FAIL_INCOMPLETE_ALGORITHM_COVERAGE")
+        self.assertEqual(report["missing_kem_modes"], ["encapDecap"])
+        self.assertNotIn("private-session-token", str(report))
+        self.assertFalse(any(method == "GET" and path == server.session + "/results"
+                             for method, path, token, body in server.calls))
+
+    def test_mlkem_unadvertised_group_reports_safe_diagnostic(self):
+        """Unsupported ML-KEM key checks fail before running any native operation."""
+        class UnadvertisedKem(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": "ML-KEM",
+                             "mode": "encapDecap", "revision": "FIPS203-tr1",
+                             "testGroups": [{"tgId": 1, "testType": "VAL",
+                                             "parameterSet": "ML-KEM-512",
+                                             "function": "encapsulationKeyCheck",
+                                             "tests": [{"tcId": 9, "ek": "AB" * 800}]}]}]
+                return super().request(method, path, token, body)
+
+        server = UnadvertisedKem()
+        qsc = Oracle()
+        qsc.kem = object()
+        report = client.execute(
+            server, qsc, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            ("SHA3-256", "SHA3-512", "SHAKE-128", "SHAKE-256", "ML-KEM"),
+            poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        self.assertEqual(report["vectors"][0]["diagnostic_code"],
+                         "UNSUPPORTED_KEM_GROUP")
+        self.assertEqual(report["vectors"][0]["stage"], "BUILD_RESPONSE")
+        self.assertNotIn("private-session-token", str(report))
+        self.assertFalse(any(method == "POST" and path == server.vector + "/results"
+                             for method, path, token, body in server.calls))
+
     def test_large_response_uses_server_grant_and_single_upload(self):
         """Large responses use a grant rather than the standard result endpoint."""
         class LargeServer(FakeTransport):
