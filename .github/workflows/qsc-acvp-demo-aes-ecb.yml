@@ -123,6 +123,15 @@ jobs:
           print("PASS: AES-128/256 ECB encryption/decryption KAT and sample registration")
           PY
 
+      - name: Run credential-free AES-ECB adapter and Demo protocol regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q Source/ACVP
+          python -m unittest discover -s Source/ACVP/tests -p test_demo_client.py -v
+          python -m unittest discover -s Source/ACVP/tests -p test_aes_vectors.py -v
+          echo 'PASS: AES vector parser and protected Demo protocol regression checks'
+
       - name: Materialize protected NIST mTLS and TOTP credentials
         shell: bash
         env:
