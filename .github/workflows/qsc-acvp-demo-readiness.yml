@@ -87,6 +87,20 @@ jobs:
           fi
           echo 'PASS: AES-CTR counter tests omit payloadLen; AFT remains strict'
 
+      - name: Verify PBKDF ACVP registration and vector-format compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
+            python -m unittest test_kdf_vectors.KeyDerivationSchemaTests -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-acvp-demo-readiness/pbkdf-schema-tests.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-acvp-demo-readiness/pbkdf-schema-tests.log"
+          if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-acvp-demo-readiness/pbkdf-schema-tests.log"; then
+            echo 'FAIL: PBKDF ACVP schema regressions incomplete' >&2
+            exit 1
+          fi
+          echo 'PASS: PBKDF ACVP schema, length and prerequisite regressions'
+
       - name: Verify credentials are absent from regression process
         shell: bash
         run: |
@@ -127,6 +141,11 @@ jobs:
           passed = passed and ('\nOK\n' in ctr and 'Ran 18 tests' in ctr and
                                'FAILED' not in ctr and 'ERROR' not in ctr and
                                'skipped=' not in ctr)
+          pbkdf_path = out / 'pbkdf-schema-tests.log'
+          pbkdf = pbkdf_path.read_text(encoding='utf-8') if pbkdf_path.is_file() else ''
+          passed = passed and ('\nOK\n' in pbkdf and 'Ran 11 tests' in pbkdf and
+                               'FAILED' not in pbkdf and 'ERROR' not in pbkdf and
+                               'skipped=' not in pbkdf)
           report = {
               'type': 'ACVTS_DEMO_CREDENTIAL_FREE_PROTOCOL_READINESS',
               'timestamp_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
