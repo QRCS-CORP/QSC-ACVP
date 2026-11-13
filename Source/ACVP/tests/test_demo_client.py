@@ -430,6 +430,67 @@ class DemoClientTests(unittest.TestCase):
         self.assertFalse(any(method == "POST" and path == server.vector + "/results"
                              for method, path, token, body in server.calls))
 
+    def test_mldsa_incomplete_registered_modes_fails_closed(self):
+        """Key generation alone cannot cover advertised sigGen and sigVer."""
+        class KeyGenOnly(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": "ML-DSA", "mode": "keyGen",
+                             "revision": "FIPS204",
+                             "testGroups": [{"tgId": 1, "testType": "AFT",
+                                             "parameterSet": "ML-DSA-44",
+                                             "tests": [{"tcId": 1, "seed": "ab" * 32}]}]}]
+                return super().request(method, path, token, body)
+
+        class SigningAdapter:
+            def keygen(self, parameter, seed):
+                return bytes([1]) * 1312, bytes([2]) * 2560
+
+        server = KeyGenOnly()
+        engine = Oracle()
+        engine.dsa = SigningAdapter()
+        report = client.execute(
+            server, engine, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            ("SHAKE-128", "SHAKE-256", "ML-DSA"), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_INCOMPLETE_ALGORITHM_COVERAGE")
+        self.assertEqual(report["missing_dsa_modes"], ["sigGen", "sigVer"])
+        self.assertNotIn("private-session-token", str(report))
+        self.assertFalse(any(method == "GET" and path == server.session + "/results"
+                             for method, path, token, body in server.calls))
+
+    def test_mldsa_unadvertised_signature_interface_has_safe_code(self):
+        """ACVP preHash rejection must not serialize native or secret material."""
+        class UnadvertisedSigning(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 91, "algorithm": "ML-DSA", "mode": "sigGen",
+                             "revision": "FIPS204-tr1",
+                             "testGroups": [{"tgId": 1, "testType": "AFT",
+                                             "parameterSet": "ML-DSA-44",
+                                             "signatureInterface": "external",
+                                             "preHash": "preHash",
+                                             "deterministic": True,
+                                             "keyFormat": "expanded",
+                                             "tests": [{"tcId": 1}]}]}]
+                return super().request(method, path, token, body)
+
+        server = UnadvertisedSigning()
+        engine = Oracle()
+        engine.dsa = object()
+        report = client.execute(
+            server, engine, "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+            ("SHAKE-128", "SHAKE-256", "ML-DSA"), poll_count=1)
+        self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
+        self.assertEqual(report["vectors"][0]["diagnostic_code"], "UNSUPPORTED_INTERFACE")
+        self.assertEqual(report["vectors"][0]["stage"], "BUILD_RESPONSE")
+        self.assertNotIn("private-session-token", str(report))
+        self.assertFalse(any(method == "POST" and path == server.vector + "/results"
+                             for method, path, token, body in server.calls))
+
     def test_large_response_uses_server_grant_and_single_upload(self):
         """Large responses use a grant rather than the standard result endpoint."""
         class LargeServer(FakeTransport):
