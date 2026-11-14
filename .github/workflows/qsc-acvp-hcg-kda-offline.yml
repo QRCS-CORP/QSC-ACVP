@@ -14,7 +14,6 @@ on:
       - 'Source/ACVP/tests/test_kda_hcg_native.py'
       - 'Source/ACVP/kda_session_inspect.py'
       - 'Source/ACVP/tests/test_kda_session_inspect.py'
-      - '.github/workflows/qsc-acvp-kda-readonly-787983.yml'
       - '.github/workflows/qsc-acvp-hcg-kda-offline.yml'
       - '.github/workflows/qsc-acvp-demo-hcg-kda-hkdf.yml'
   workflow_dispatch:
@@ -49,8 +48,6 @@ jobs:
           set -euo pipefail
           ruby -e 'require "yaml"; YAML.load_file(ARGV.fetch(0)); puts "PASS: KDA-HKDF NIST workflow YAML syntax"' \
             .github/workflows/qsc-acvp-demo-hcg-kda-hkdf.yml
-          ruby -e 'require "yaml"; YAML.load_file(ARGV.fetch(0)); puts "PASS: read-only inspection workflow YAML syntax"' \
-            .github/workflows/qsc-acvp-kda-readonly-787983.yml
 
       - name: Compile native HCG and HKDF libraries
         shell: bash
