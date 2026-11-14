@@ -611,8 +611,10 @@ def build_ecc_response(envelope, ecc):
                     raise ValueError("Incomplete XECDH key generation")
                 result.update({"privateKey": private.hex().upper(), "publicKey": public.hex().upper()})
             elif mode == "keyVer":
-                public = decode_hex(item.get("publicKey"), X_CURVES[curve][1])
-                result["testPassed"] = bool(ecc.xecdh_keyver(curve, public))
+                public = decode_hex(item.get("publicKey"))
+                result["testPassed"] = (
+                    len(public) == X_CURVES[curve][1] and
+                    bool(ecc.xecdh_keyver(curve, public)))
             else:
                 peer = decode_hex(item.get("publicServer"), X_CURVES[curve][1])
                 public, secret = ecc.xecdh_ssc(curve, peer)
