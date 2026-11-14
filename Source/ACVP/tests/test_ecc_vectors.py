@@ -378,6 +378,63 @@ class ECCVectorTests(unittest.TestCase):
                                        msg=f"FAIL: malformed EDDSA {field} accepted"):
                     build_ecc_response(vector("EDDSA", "sigVer", "1.0", group), MockEcc())
 
+    def test_xecdh_hcg_same_session_registration_all_modes(self):
+        """XECDH must register Curve25519/448 and three modes with native HCG."""
+        from demo_client import registration as demo_registration
+        chosen = ("SHA2-512", "HMAC-SHA2-512", "hmacDRBG", "XECDH")
+        cap = demo_registration(chosen, "same")[1]["algorithms"]
+        selected = [item for item in cap if item["algorithm"] == "XECDH"]
+        self.assertEqual([item["mode"] for item in selected],
+                         ["keyGen", "keyVer", "SSC"],
+                         "FAIL: XECDH ACVP modes are incomplete")
+        for item in selected:
+            self.assertEqual(item["curve"], ["Curve25519", "Curve448"],
+                             "FAIL: XECDH native curve capabilities")
+            self.assertEqual(item["prereqVals"][0],
+                             {"algorithm": "DRBG", "valValue": "same"},
+                             "FAIL: XECDH native HCG prerequisite")
+        with self.assertRaises(ValueError,
+                               msg="FAIL: XECDH same-session claim without HCG accepted"):
+            demo_registration(("SHA2-512", "HMAC-SHA2-512", "XECDH"), "same")
+
+    def test_xecdh_keyver_negative_public_lengths_return_false(self):
+        """ACVP public negative vectors ±1 byte must return testPassed false."""
+        for curve, width in (("Curve25519", 32), ("Curve448", 56)):
+            with self.subTest(curve=curve):
+                class NativeCallCounter:
+                    def __init__(self):
+                        self.calls = []
+
+                    def xecdh_keyver(self, curve, value):
+                        self.calls.append((curve, value))
+                        return True
+
+                native = NativeCallCounter()
+                group = {"tgId": 1, "curve": curve, "testType": "AFT",
+                         "tests": [
+                             {"tcId": 1, "publicKey": "AB" * (width - 1)},
+                             {"tcId": 2, "publicKey": "AB" * (width + 1)},
+                             {"tcId": 3, "publicKey": "12" * width}]}
+                result = build_ecc_response(
+                    vector("XECDH", "keyVer", "RFC7748", group), native)
+                self.assertEqual([case["testPassed"] for case in
+                                  result[1]["testGroups"][0]["tests"]],
+                                 [False, False, True],
+                                 f"FAIL: XECDH keyVer negative byte widths {curve}")
+                self.assertEqual(native.calls, [(curve, bytes.fromhex("12" * width))],
+                                 f"FAIL: malformed XECDH input reached native {curve}")
+
+    def test_xecdh_keyver_malformed_hex_rejected(self):
+        """Nonhex, odd-length, missing and wrong-type inputs remain failures."""
+        for invalid in (None, "G0", "1", 129):
+            with self.subTest(invalid=invalid):
+                group = {"tgId": 1, "curve": "Curve25519", "testType": "AFT",
+                         "tests": [{"tcId": 1, "publicKey": invalid}]}
+                with self.assertRaises(ValueError,
+                                       msg="FAIL: malformed XECDH keyVer accepted"):
+                    build_ecc_response(
+                        vector("XECDH", "keyVer", "RFC7748", group), MockEcc())
+
     def test_xecdh_shared_secret_response(self):
         group = {"tgId": 1, "curve": "Curve25519", "testType": "AFT",
                  "tests": [{"tcId": 3, "publicServer": "01" * 32}]}
