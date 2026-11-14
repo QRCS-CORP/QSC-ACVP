@@ -442,6 +442,181 @@ class ECCVectorTests(unittest.TestCase):
         self.assertEqual(response[1]["testGroups"][0]["tests"],
                          [{"tcId": 3, "publicIut": "AB" * 32, "z": "CD" * 32}])
 
+    def test_kas_same_session_registration_matches_prime_curve_scope(self):
+        """Advertise only staticUnified P-curves with native HCG and no Z hash."""
+        from demo_client import registration as demo_registration
+        selected = ("SHA2-256", "SHA2-384", "SHA2-512",
+                    "HMAC-SHA2-512", "hmacDRBG", "ECDSA", "KAS-ECC-SSC")
+        entries = demo_registration(selected, "same")[1]["algorithms"]
+        kas = [entry for entry in entries if entry["algorithm"] == "KAS-ECC-SSC"]
+        ecdsa = [entry for entry in entries if entry["algorithm"] == "ECDSA"]
+        self.assertEqual(len(kas), 1,
+                         "FAIL: KAS-ECC-SSC must have exactly one SSC capability")
+        self.assertEqual([entry.get("mode") for entry in kas], [None],
+                         "FAIL: KAS-ECC-SSC must omit unsupported mode")
+        self.assertEqual(kas[0]["revision"], "Sp800-56Ar3",
+                         "FAIL: incorrect KAS-ECC-SSC revision")
+        self.assertEqual(kas[0]["scheme"],
+                         {"staticUnified": {"kasRole": ["initiator", "responder"]}},
+                         "FAIL: KAS registration over-advertises untested schemes")
+        self.assertEqual(kas[0]["domainParameterGenerationMethods"],
+                         ["P-256", "P-384", "P-521"],
+                         "FAIL: KAS registration over-advertises curves")
+        self.assertEqual(kas[0]["hashFunctionZ"], "none",
+                         "FAIL: KAS must return full shared Z")
+        self.assertEqual(kas[0]["prereqVals"],
+                         [{"algorithm": "DRBG", "valValue": "same"},
+                          {"algorithm": "ECDSA", "valValue": "same"}],
+                         "FAIL: KAS native DRBG/ECDSA prerequisites")
+        self.assertEqual([x["mode"] for x in ecdsa],
+                         ["keyGen", "keyVer", "sigVer"],
+                         "FAIL: ECDSA prerequisite capability incomplete")
+        with self.assertRaises(ValueError):
+            demo_registration(tuple(x for x in selected if x != "ECDSA"), "same")
+        with self.assertRaises(ValueError):
+            demo_registration(tuple(x for x in selected if x != "hmacDRBG"), "same")
+
+    def test_kas_val_checks_static_iut_public_private_pair(self):
+        """A mismatched local public point must invalidate VAL despite matching Z."""
+        class RecordingKas:
+            def __init__(self, width):
+                self.width = width
+                self.exchanges = 0
+
+            def ecdh_public_from_private(self, curve, private):
+                self_private = (1).to_bytes(self.width, "big")
+                self.assert_private = private == self_private
+                if not self.assert_private:
+                    raise ValueError("invalid scalar")
+                return b"\\x11" * self.width + b"\\x22" * self.width
+
+            def ecdh_exchange(self, curve, peer, private):
+                self.exchanges += 1
+                return b"\\x44" * self.width
+
+        for curve, width in (("P-256", 32), ("P-384", 48), ("P-521", 66)):
+            with self.subTest(curve=curve):
+                engine = RecordingKas(width)
+                data = {"tcId": 1, "staticPublicServerX": "AA" * width,
+                        "staticPublicServerY": "BB" * width,
+                        "staticPrivateIut": "00" * (width - 1) + "01",
+                        "staticPublicIutX": "11" * width,
+                        "staticPublicIutY": "22" * width,
+                        "z": "44" * width}
+                group = {"tgId": 3, "testType": "VAL", "scheme": "staticUnified",
+                         "kasRole": "responder",
+                         "domainParameterGenerationMode": curve, "hashFunctionZ": "none",
+                         "tests": [data]}
+                expected = build_kas_response(
+                    vector("KAS-ECC-SSC", None, "Sp800-56Ar3", group), engine)
+                self.assertEqual(expected[1]["testGroups"][0]["tests"],
+                                 [{"tcId": 1, "testPassed": True}],
+                                 f"FAIL: KAS native VAL positive {curve}")
+                self.assertEqual(engine.exchanges, 1,
+                                 f"FAIL: KAS native exchange not executed {curve}")
+                data["staticPublicIutX"] = "33" * width
+                result = build_kas_response(
+                    vector("KAS-ECC-SSC", None, "Sp800-56Ar3", group), engine)
+                self.assertIs(result[1]["testGroups"][0]["tests"][0]["testPassed"], False,
+                              f"FAIL: KAS accepted mismatched local public key {curve}")
+                self.assertEqual(engine.exchanges, 1,
+                                 f"FAIL: KAS exchanged before public/private consistency check {curve}")
+
+    def test_kas_val_negative_field_width_and_secret_cases(self):
+        """Bad-but-hex-encoded KAS VAL fields return false, never abort group."""
+        class NativeNotCalled:
+            def ecdh_public_from_private(self, curve, private):
+                raise AssertionError("FAIL: invalid KAS VAL field reached native scalarbase")
+
+            def ecdh_exchange(self, curve, peer, private):
+                raise AssertionError("FAIL: invalid KAS VAL field reached native ECDH")
+
+        for curve, width in (("P-256", 32), ("P-384", 48), ("P-521", 66)):
+            with self.subTest(curve=curve):
+                case = {"tcId": 1, "staticPublicServerX": "11" * width,
+                        "staticPublicServerY": "22" * width,
+                        "staticPrivateIut": "33" * width,
+                        "staticPublicIutX": "44" * width,
+                        "staticPublicIutY": "55" * width,
+                        "z": "66" * width}
+                group = {"tgId": 1, "testType": "VAL", "scheme": "staticUnified",
+                         "kasRole": "initiator", "domainParameterGenerationMode": curve,
+                         "tests": [case]}
+                for field in ("staticPublicServerX", "staticPublicServerY",
+                              "staticPrivateIut", "staticPublicIutX",
+                              "staticPublicIutY"):
+                    with self.subTest(field=field):
+                        modified = dict(case)
+                        modified[field] = "AB" * (width + 2)
+                        group["tests"] = [modified]
+                        result = build_kas_response(
+                            vector("KAS-ECC-SSC", None, "Sp800-56Ar3", group),
+                            NativeNotCalled())
+                        self.assertIs(
+                            result[1]["testGroups"][0]["tests"][0]["testPassed"],
+                            False, f"FAIL: invalid KAS {curve} {field} aborted validation")
+                modified = dict(case)
+                modified["z"] = "AB" * (width + 1)
+                group["tests"] = [modified]
+                result = build_kas_response(
+                    vector("KAS-ECC-SSC", None, "Sp800-56Ar3", group),
+                    NativeNotCalled())
+                self.assertIs(result[1]["testGroups"][0]["tests"][0]["testPassed"],
+                              False, f"FAIL: wrong-length KAS Z {curve}")
+
+    def test_kas_malformed_hex_and_duplicate_case_ids_fail_closed(self):
+        """Invalid JSON and duplicate group/case identifiers must never pass."""
+        class DummyKas:
+            def ecdh_public_from_private(self, curve, private):
+                return bytes(64)
+
+            def ecdh_exchange(self, curve, peer, private):
+                return bytes(32)
+
+        item = {"tcId": 1, "staticPublicServerX": "AB" * 32,
+                "staticPublicServerY": "CD" * 32,
+                "staticPrivateIut": "00" * 31 + "01",
+                "staticPublicIutX": "11" * 32, "staticPublicIutY": "22" * 32,
+                "z": "33" * 32}
+        group = {"tgId": 1, "testType": "VAL", "scheme": "staticUnified",
+                 "kasRole": "initiator", "domainParameterGenerationMode": "P-256",
+                 "tests": [item]}
+        for field, malformed in (("staticPublicServerX", "G0"),
+                                 ("staticPublicIutY", "1"),
+                                 ("staticPrivateIut", None), ("z", 17)):
+            with self.subTest(field=field):
+                altered = dict(item)
+                altered[field] = malformed
+                group["tests"] = [altered]
+                with self.assertRaises(ValueError):
+                    build_kas_response(vector("KAS-ECC-SSC", None, "Sp800-56Ar3", group),
+                                       DummyKas())
+        group["tests"] = [item, dict(item)]
+        with self.assertRaises(ValueError):
+            build_kas_response(vector("KAS-ECC-SSC", None, "Sp800-56Ar3", group),
+                               DummyKas())
+        group["tests"] = [item]
+        envelope = vector("KAS-ECC-SSC", None, "Sp800-56Ar3", group)
+        envelope[1]["testGroups"].append(dict(group))
+        with self.assertRaises(ValueError):
+            build_kas_response(envelope, DummyKas())
+
+    def test_kas_rejects_unadvertised_binary_curve_or_hashed_secret(self):
+        """Do not silently claim unsupported MQV, binary curves, or hash(Z)."""
+        group = {"tgId": 1, "testType": "AFT", "scheme": "staticUnified",
+                 "kasRole": "initiator",
+                 "domainParameterGenerationMode": "K-233",
+                 "tests": [{"tcId": 1, "staticPublicServerX": "11" * 32,
+                            "staticPublicServerY": "22" * 32}]}
+        with self.assertRaises(ValueError):
+            build_kas_response(vector("KAS-ECC-SSC", None, "Sp800-56Ar3", group),
+                               MockEcc())
+        group["domainParameterGenerationMode"] = "P-256"
+        group["hashFunctionZ"] = "SHA2-256"
+        with self.assertRaises(ValueError):
+            build_kas_response(vector("KAS-ECC-SSC", None, "Sp800-56Ar3", group),
+                               MockEcc())
+
     def test_kas_rejects_mqv_and_unsupported_hashz(self):
         group = {"tgId": 1, "testType": "AFT", "scheme": "fullMqv", "kasRole": "initiator",
                  "domainParameterGenerationMode": "P-384", "tests": []}
