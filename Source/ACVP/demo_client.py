@@ -552,7 +552,8 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                 vector_result["retry_count"] = vector_result.get("retry_count", 0) + 1
                 # NIST's value is a minimum interval, not a 30-second cap.
                 # Voluntarily wait at least 30 seconds to avoid server load.
-                due[validated] = time.monotonic() + max(retry, 30)
+                due[validated] = min(
+                    vector_deadline, time.monotonic() + max(30, min(retry, 18 * 60)))
                 continue
             if (type(request[1].get("vsId")) is not int or
                     str(request[1]["vsId"]) != vector_result["vector_set"]):
