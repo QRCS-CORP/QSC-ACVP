@@ -160,6 +160,47 @@ class ECCVectorTests(unittest.TestCase):
         self.assertEqual(result["qy"], "AA" * 48)
         self.assertEqual(result["tests"][1], {"tcId": 2, "r": "01" * 48, "s": "02" * 48})
 
+    def test_detecdsa_same_session_registration_restricts_component_mode(self):
+        """Register only supported FIPS 186-5 deterministic full signatures."""
+        from demo_client import registration as demo_registration
+        selected = ("SHA2-256", "SHA2-384", "SHA2-512",
+                    "HMAC-SHA2-512", "hmacDRBG", "DetECDSA")
+        registered = demo_registration(selected, "same")[1]["algorithms"]
+        modes = [entry for entry in registered if entry["algorithm"] == "DetECDSA"]
+        self.assertEqual(len(modes), 1,
+                         "FAIL: DetECDSA must have one sigGen capability")
+        self.assertEqual(modes[0]["mode"], "sigGen",
+                         "FAIL: DetECDSA must register sigGen")
+        self.assertIs(modes[0]["componentTest"], False,
+                      "FAIL: DetECDSA component mode must not be advertised")
+        self.assertEqual(modes[0]["prereqVals"][0],
+                         {"algorithm": "DRBG", "valValue": "same"},
+                         "FAIL: DetECDSA needs the same-session native HCG")
+        self.assertEqual(
+            [(entry["curve"], entry["hashAlg"]) for entry in modes[0]["capabilities"]],
+            [(["P-256"], ["SHA2-256"]), (["P-384"], ["SHA2-384"]),
+             (["P-521"], ["SHA2-512"])],
+            "FAIL: DetECDSA must advertise supported prime-curve digest pairs")
+        with self.assertRaises(ValueError,
+                               msg="FAIL: DetECDSA without HCG must reject same-session DRBG"):
+            demo_registration(tuple(name for name in selected if name != "hmacDRBG"),
+                              "same")
+
+    def test_detecdsa_rejects_unsupported_component_mode(self):
+        """A DetECDSA component-only vector must fail before native signing."""
+        group = {"tgId": 5, "testType": "AFT", "curve": "P-256",
+                 "hashAlg": "SHA2-256", "componentTest": True,
+                 "tests": [{"tcId": 1, "message": "414243"}]}
+        with self.assertRaises(ValueError,
+                               msg="FAIL: unsupported DetECDSA component test accepted"):
+            build_ecc_response(
+                vector("DetECDSA", "sigGen", "FIPS186-5", group), MockEcc())
+        group["componentTest"] = False
+        result = build_ecc_response(
+            vector("DetECDSA", "sigGen", "FIPS186-5", group), MockEcc())
+        self.assertEqual(result[1]["testGroups"][0]["tests"][0]["tcId"], 1,
+                         "FAIL: full-signature deterministic mode rejected")
+
     def test_eddsa_signature_group_response(self):
         group = {"tgId": 3, "testType": "AFT", "curve": "ED-25519", "preHash": False,
                  "tests": [{"tcId": 9, "message": ""}, {"tcId": 10, "message": "0123"}]}
