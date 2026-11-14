@@ -443,6 +443,10 @@ def registration(algorithm, drbg_validation, mode=None, allow_same_session=False
                 "prereqVals": list(prereq)}
         if operation is not None:
             item["mode"] = operation
+        if algorithm == "DetECDSA":
+            # Only full deterministic signatures; NIST component testing is
+            # outside the supported QSC ACVP DetECDSA profile.
+            item["componentTest"] = False
         if algorithm == "KAS-ECC-SSC":
             item["prereqVals"].append({"algorithm": "ECDSA", "valValue": "same"})
             item["scheme"] = {"staticUnified": {"kasRole": ["initiator", "responder"]}}
@@ -504,6 +508,8 @@ def build_ecc_response(envelope, ecc):
         seen_groups.add(group["tgId"])
         curve = group.get("curve")
         if algorithm in ("ECDSA", "DetECDSA"):
+            if algorithm == "DetECDSA" and group.get("componentTest", False) is not False:
+                raise ValueError("DetECDSA component testing is not supported")
             if curve not in NIST_CURVES:
                 raise ValueError("Unsupported ECDSA curve")
             if mode in ("sigGen", "sigVer") and group.get("hashAlg") != NIST_CURVES[curve][2]:
