@@ -209,6 +209,40 @@ class EccHcgNativeTests(unittest.TestCase):
         finally:
             other_hcg.dispose()
 
+    def test_nist_eddsa_keyver_public_samples_both_curves(self):
+        """Native QSC validation must match NIST's published positive/negative keys."""
+        samples = (
+            ("ED-25519", "5BC0D8831F8D7FB200E32DAF36C54BF2808E69D40BD48BD915DF585B2696C166", False),
+            ("ED-25519", "CF1BD87814E4113E9CAB4D5B95A4F85EA04BAC9EB70053023B1D201A85225072", True),
+            ("ED-25519", "EB0E59A5D0EC784B3EFC7E5A86DFBD244789E5B384A652A43DC0968974E83571", True),
+            ("ED-25519", "FBB4F7945F521A5CB169883477E9DFAFA14767FD4D973D8FD3667C46253F5943", False),
+            ("ED-448", "D74E406880F2BD2950D8AC5593AAC612D945EA7CA08DC1EF6BE7FE0BB61C3B0DDA563ED2B545919937B3174CB9826698F575B15DAC6B642A80", True),
+            ("ED-448", "8DE82D8611D23882CEFC1C3BD13C1E5E3BAC0D1AAE908FFF0B0A5431B90BEF715F1160073C919B886BBDAF156FA051CA37022E8118B260FF00", False),
+            ("ED-448", "BC17476D69799F0CDAAF4D730FBD7BE9078DE04A1B90A91938E994FFF14C029214DE2FD97D75A0A973BC106C6AF465D44C2EE0D32D4D4CBB00", True),
+            ("ED-448", "480B6575633FEFAF3635EFA2294F2CBF1E8D49F6BC0CD8B8F5A91A0A59922BE33CDD837A3ACCAA419970CBE4A21A062CF37F839931CF17EE80", False),
+        )
+        for curve, public_hex, expected in samples:
+            with self.subTest(curve=curve, prefix=public_hex[:12]):
+                actual = self.ecc.eddsa_keyver(curve, bytes.fromhex(public_hex))
+                self.assertEqual(actual, expected,
+                                 f"FAIL: QSC native EDDSA NIST keyVer {curve} {public_hex[:12]}")
+
+    def test_hcg_eddsa_bit_flip_signatures_distinct_and_verify(self):
+        """Native HCG/QSC pure EdDSA BFT signatures change for bit-flipped messages."""
+        messages = (b"\x6B\x96\x39\xCC", b"\x6B\x96\x39\xCD",
+                    b"\x6B\x96\x39\xCE")
+        for curve, parser in (("ED-25519", ed25519.Ed25519PublicKey),
+                              ("ED-448", ed448.Ed448PublicKey)):
+            with self.subTest(curve=curve):
+                public, signatures = self.ecc.eddsa_sign_group(curve, messages)
+                self.assertEqual(len(signatures), 3,
+                                 f"FAIL: native EDDSA BFT signed message count {curve}")
+                self.assertEqual(len(set(signatures)), len(messages),
+                                 f"FAIL: native EDDSA bit flip did not change signature {curve}")
+                key = parser.from_public_bytes(public)
+                for message, signature in zip(messages, signatures):
+                    key.verify(signature, message)
+
     def test_hcg_kas_and_xecdh_shared_secrets_verify_independently(self):
         server = ec.derive_private_key(7, ec.SECP256R1())
         point = server.public_key().public_numbers()

@@ -466,7 +466,10 @@ def registration(algorithm, drbg_validation, mode=None, allow_same_session=False
                 # QSC's Ed448 interface supports the empty context only.
                 item["pure"] = True
                 item["preHash"] = False
-                item["contextLength"] = [{"min": 0, "max": 0, "increment": 1}]
+                if operation == "sigGen":
+                    # Context-length advertisement is valid for Ed448 sigGen,
+                    # but is not part of the EdDSA sigVer registration schema.
+                    item["contextLength"] = [{"min": 0, "max": 0, "increment": 1}]
             item["curve"] = ed_curves
         else:
             item["curve"] = x_curves
@@ -500,9 +503,11 @@ def build_ecc_response(envelope, ecc):
     groups = []
     seen_groups = set()
     seen_cases = set()
+    supported_test_types = ("AFT", "BFT") if algorithm == "EDDSA" and mode == "sigGen" else ("AFT",)
     for group in body["testGroups"]:
         if (not isinstance(group, dict) or type(group.get("tgId")) is not int or
-                group["tgId"] in seen_groups or group.get("testType") != "AFT" or
+                group["tgId"] in seen_groups or
+                group.get("testType") not in supported_test_types or
                 not isinstance(group.get("tests"), list) or group.get("conformance") is not None):
             raise ValueError("Unsupported or duplicate ECC test group")
         seen_groups.add(group["tgId"])
@@ -586,15 +591,20 @@ def build_ecc_response(envelope, ecc):
                         raise ValueError("Incomplete EDDSA key generation")
                     result.update({"d": seed.hex().upper(), "q": public.hex().upper()})
                 elif mode == "keyVer":
-                    key = decode_hex(item.get("q"), expected=ED_CURVES[curve][1])
-                    result["testPassed"] = bool(ecc.eddsa_keyver(curve, key))
+                    key = decode_hex(item.get("q"))
+                    result["testPassed"] = (
+                        len(key) == ED_CURVES[curve][1] and
+                        bool(ecc.eddsa_keyver(curve, key)))
                 else:
                     if item.get("context") not in (None, ""):
                         raise ValueError("Unsupported EDDSA context")
                     message = decode_hex(item.get("message"))
-                    key = decode_hex(item.get("q"), ED_CURVES[curve][1])
-                    signature = decode_hex(item.get("signature"), ED_CURVES[curve][2])
-                    result["testPassed"] = bool(ecc.eddsa_verify(curve, message, key, signature))
+                    key = decode_hex(item.get("q"))
+                    signature = decode_hex(item.get("signature"))
+                    if len(key) != ED_CURVES[curve][1] or len(signature) != ED_CURVES[curve][2]:
+                        result["testPassed"] = False
+                    else:
+                        result["testPassed"] = bool(ecc.eddsa_verify(curve, message, key, signature))
             elif mode == "keyGen":
                 private, public = ecc.xecdh_keygen(curve)
                 if len(private) != X_CURVES[curve][1] or len(public) != len(private):

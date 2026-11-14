@@ -251,6 +251,115 @@ class ECCVectorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_ecc_response(vector("EDDSA", "sigVer", "1.0", group), MockEcc())
 
+    def test_eddsa_hcg_capability_modes_and_context_fields(self):
+        """Register exactly the supported pure EDDSA modes with HCG and SHA."""
+        from demo_client import registration as demo_registration
+        selected = ("SHA2-512", "SHAKE-256", "HMAC-SHA2-512",
+                    "hmacDRBG", "EDDSA")
+        caps = demo_registration(selected, "same")[1]["algorithms"]
+        eddsa = [x for x in caps if x["algorithm"] == "EDDSA"]
+        self.assertEqual([x["mode"] for x in eddsa],
+                         ["keyGen", "keyVer", "sigGen", "sigVer"],
+                         "FAIL: registered EDDSA modes differ from implementation")
+        for item in eddsa:
+            self.assertEqual(item["prereqVals"][0],
+                             {"algorithm": "DRBG", "valValue": "same"},
+                             "FAIL: EDDSA must use the HCG same-session prerequisite")
+            self.assertEqual(item["curve"], ["ED-25519", "ED-448"],
+                             "FAIL: EDDSA native curve registration")
+        for item in eddsa[2:]:
+            self.assertIs(item["pure"], True,
+                          "FAIL: EDDSA pure mode not advertised")
+            self.assertIs(item["preHash"], False,
+                          "FAIL: unsupported EDDSA preHash advertised")
+        self.assertEqual(eddsa[2]["contextLength"],
+                         [{"min": 0, "max": 0, "increment": 1}],
+                         "FAIL: Ed448 pure sigGen context must be zero")
+        self.assertNotIn("contextLength", eddsa[3],
+                         "FAIL: EDDSA sigVer must not advertise contextLength")
+        with self.assertRaises(ValueError,
+                               msg="FAIL: EDDSA same-session DRBG without HCG accepted"):
+            demo_registration(("SHA2-512", "SHAKE-256", "HMAC-SHA2-512", "EDDSA"),
+                              "same")
+
+    def test_eddsa_siggen_bit_flip_test_both_curves(self):
+        """ACVP EDDSA pure sigGen BFT groups use the standard signature response."""
+        for curve, width, siglen in (("ED-25519", 32, 64), ("ED-448", 57, 114)):
+            with self.subTest(curve=curve):
+                group = {"tgId": 6, "curve": curve, "preHash": False,
+                         "testType": "BFT",
+                         "tests": [{"tcId": 10, "message": "6B9639CC"},
+                                   {"tcId": 11, "message": "6B9639CD"}]}
+                answer = build_ecc_response(
+                    vector("EDDSA", "sigGen", "1.0", group), MockEcc())
+                result = answer[1]["testGroups"][0]
+                self.assertEqual(result["q"], "AA" * width,
+                                 f"FAIL: EDDSA BFT group public key {curve}")
+                self.assertEqual([case["tcId"] for case in result["tests"]], [10, 11],
+                                 f"FAIL: EDDSA BFT case identifiers {curve}")
+                self.assertEqual([len(bytes.fromhex(t["signature"]))
+                                  for t in result["tests"]], [siglen, siglen],
+                                 f"FAIL: EDDSA BFT signature widths {curve}")
+                group["testType"] = "BFT"
+                group["tests"] = [{"tcId": 10, "q": "11" * width}]
+                with self.assertRaises(ValueError,
+                                       msg="FAIL: EDDSA keyVer BFT incorrectly accepted"):
+                    build_ecc_response(vector("EDDSA", "keyVer", "1.0", group), MockEcc())
+
+    def test_eddsa_negative_key_lengths_are_false_not_vector_failures(self):
+        """Malformed-size but well-formed hex keys are negative keyVer tests."""
+        class NoNativeKey:
+            def eddsa_keyver(self, curve, key):
+                raise AssertionError("FAIL: incorrect-width EDDSA key reached native QSC")
+
+        for curve, width in (("ED-25519", 32), ("ED-448", 57)):
+            with self.subTest(curve=curve):
+                group = {"tgId": 8, "curve": curve, "testType": "AFT",
+                         "tests": [
+                             {"tcId": 1, "q": "AB" * (width - 1)},
+                             {"tcId": 2, "q": "AB" * (width + 1)},
+                             {"tcId": 3, "q": ""}]}
+                result = build_ecc_response(
+                    vector("EDDSA", "keyVer", "1.0", group), NoNativeKey())
+                self.assertEqual([t["testPassed"] for t in result[1]["testGroups"][0]["tests"]],
+                                 [False, False, False],
+                                 f"FAIL: EDDSA keyVer negative length handling {curve}")
+
+    def test_eddsa_negative_signature_lengths_are_false_not_vector_failures(self):
+        """ACVP ED448 truncated signatures are negative signature tests."""
+        class NoNativeSignature:
+            def eddsa_verify(self, curve, message, key, signature):
+                raise AssertionError("FAIL: incorrect-length EDDSA signature reached QSC")
+
+        for curve, width, siglen in (("ED-25519", 32, 64), ("ED-448", 57, 114)):
+            with self.subTest(curve=curve):
+                group = {"tgId": 9, "curve": curve, "testType": "AFT",
+                         "preHash": False, "tests": [
+                             {"tcId": 1, "message": "414243", "q": "12" * width,
+                              "signature": "AB" * (siglen - 1)},
+                             {"tcId": 2, "message": "414243", "q": "12" * (width - 1),
+                              "signature": "AB" * siglen}]}
+                result = build_ecc_response(
+                    vector("EDDSA", "sigVer", "1.0", group), NoNativeSignature())
+                self.assertEqual([t["testPassed"] for t in result[1]["testGroups"][0]["tests"]],
+                                 [False, False],
+                                 f"FAIL: EDDSA sigVer negative lengths {curve}")
+
+    def test_eddsa_malformed_hex_still_rejected(self):
+        """Negative-vector handling must not disguise invalid JSON or hex inputs."""
+        for field, value in (("q", None), ("q", "G1"), ("q", "0"),
+                             ("signature", 17), ("signature", "ZZ"),
+                             ("message", "0")):
+            with self.subTest(field=field, value=value):
+                group = {"tgId": 3, "curve": "ED-25519", "testType": "AFT",
+                         "preHash": False, "tests": [
+                             {"tcId": 1, "message": "ABCD", "q": "11" * 32,
+                              "signature": "33" * 64}]}
+                group["tests"][0][field] = value
+                with self.assertRaises(ValueError,
+                                       msg=f"FAIL: malformed EDDSA {field} accepted"):
+                    build_ecc_response(vector("EDDSA", "sigVer", "1.0", group), MockEcc())
+
     def test_xecdh_shared_secret_response(self):
         group = {"tgId": 1, "curve": "Curve25519", "testType": "AFT",
                  "tests": [{"tcId": 3, "publicServer": "01" * 32}]}

@@ -16,6 +16,7 @@ on:
       - '.github/workflows/qsc-acvp-ecc-hcg-offline.yml'
       - '.github/workflows/qsc-acvp-demo-ecdsa-hcg.yml'
       - '.github/workflows/qsc-acvp-demo-detecdsa-hcg.yml'
+      - '.github/workflows/qsc-acvp-demo-eddsa-hcg.yml'
   workflow_dispatch:
 
 permissions:
@@ -56,6 +57,8 @@ jobs:
             .github/workflows/qsc-acvp-demo-ecdsa-hcg.yml
           ruby -e 'require "yaml"; YAML.load_file(ARGV.fetch(0)); puts "PASS: DetECDSA NIST workflow syntax"' \
             .github/workflows/qsc-acvp-demo-detecdsa-hcg.yml
+          ruby -e 'require "yaml"; YAML.load_file(ARGV.fetch(0)); puts "PASS: EDDSA NIST workflow syntax"' \
+            .github/workflows/qsc-acvp-demo-eddsa-hcg.yml
 
       - name: Compile full scalar ECC and HCG implementations
         shell: bash
@@ -101,13 +104,13 @@ jobs:
               test_ecc_vectors.ECCNativeVectorTests \
               test_ecc_hcg_native.EccHcgNativeTests -v \
             2>&1 | tee "$RUNNER_TEMP/qsc-ecc-hcg-native-tests.log"
-          grep -Eq '^Ran 103 tests in' "$RUNNER_TEMP/qsc-ecc-hcg-native-tests.log"
+          grep -Eq '^Ran 110 tests in' "$RUNNER_TEMP/qsc-ecc-hcg-native-tests.log"
           grep -Eq '^OK$' "$RUNNER_TEMP/qsc-ecc-hcg-native-tests.log"
           if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-ecc-hcg-native-tests.log"; then
             echo 'FAIL: ECC HCG source-pinned oracle regression' >&2
             exit 1
           fi
-          echo 'PASS: all 103 native and protocol ECC/HCG tests'
+          echo 'PASS: all 110 native and protocol ECC/HCG tests'
 
       - name: Upload credential-free ECC/HCG evidence
         if: always()
