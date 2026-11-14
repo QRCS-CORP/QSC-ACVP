@@ -991,8 +991,7 @@ class ECCNativeVectorTests(unittest.TestCase):
                     return result[1]["testGroups"][0]["tests"][0]["testPassed"]
                 self.assertTrue(verdict(), f"FAIL: native KAS valid SSC {name}")
                 wrong = dict(fields)
-                wrong["staticPublicIutX"] = ("00" if name != "P-521" else "01") + (
-                    wrong["staticPublicIutX"][2:])
+                wrong["staticPublicIutX"] = f"{(local_public.x ^ 1):0{size * 2}X}"
                 group["tests"] = [wrong]
                 self.assertFalse(verdict(),
                                  f"FAIL: KAS VAL ignored wrong local public {name}")
