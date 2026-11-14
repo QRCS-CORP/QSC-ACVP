@@ -232,6 +232,39 @@ class AcvpTransient(ValueError):
     """Retryable GET-only ACVTS response; server body deliberately discarded."""
 
 
+class AcvpPreSessionError(ValueError):
+    """Carry only a reviewed phase and diagnostic code, never server text."""
+
+    def __init__(self, stage: str, code: str):
+        super().__init__("ACVP pre-session operation failed")
+        self.stage = stage
+        self.diagnostic_code = code
+
+
+def _pre_session_diagnostic(exc: Exception) -> str:
+    """Classify expected ACVP transport errors without exposing response bodies."""
+    if isinstance(exc, AcvpUnauthorized):
+        return "HTTP_401"
+    if isinstance(exc, AcvpTransient):
+        return "TRANSIENT_GET"
+    message = str(exc)
+    prefix = "ACVP request rejected with HTTP "
+    if message.startswith(prefix):
+        status = message[len(prefix):]
+        if (len(status) == 3 and status.isascii() and status.isdigit()
+                and 100 <= int(status) <= 599):
+            return "HTTP_" + status
+    fixed = {
+        "ACVP redirect refused": "REDIRECT_REFUSED",
+        "Unexpected empty ACVP response": "EMPTY_RESPONSE",
+        "Unrecognized ACVP response envelope": "INVALID_ENVELOPE",
+        "ACVP vector payload exceeds bounded in-memory client limit": "OVERSIZED_RESPONSE",
+        "ACVTS JWT renewal returned an invalid envelope": "INVALID_JWT_REFRESH_ENVELOPE",
+        "ACVTS JWT renewal did not return an access token": "MISSING_REFRESH_TOKEN",
+    }
+    return fixed.get(message, "UNCLASSIFIED_VALUE_ERROR")
+
+
 class DemoTransport:
     """Mutually authenticated HTTPS transport pinned to the NIST Demo origin."""
 
@@ -415,8 +448,11 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
               "timestamp_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
               "status": "INCOMPLETE", "registration_algorithms": list(selected),
               "test_session": None, "vectors": [], "server_passed": False}
-    login = transport.request("POST", DEMO_API + "/login", body=[
-        {"acvVersion": "1.0"}, {"password": totp(seed, time.time())}])
+    try:
+        login = transport.request("POST", DEMO_API + "/login", body=[
+            {"acvVersion": "1.0"}, {"password": totp(seed, time.time())}])
+    except (ValueError, TypeError, OSError, urllib.error.URLError) as exc:
+        raise AcvpPreSessionError("LOGIN", _pre_session_diagnostic(exc)) from None
     token = login[1].get("accessToken")
     if not isinstance(token, str) or not token:
         raise ValueError("Login response did not include an access token")
@@ -435,11 +471,19 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                           if item["algorithm"] == "ML-DSA"}
     required_slh_modes = {item["mode"] for item in capability_envelope[1]["algorithms"]
                           if item["algorithm"] == "SLH-DSA"}
-    session = transport.request("POST", DEMO_API + "/testSessions", token,
-                                capability_envelope)[1]
-    session_path = check_path(session.get("url", ""))
-    if not session_path.startswith(DEMO_API + "/testSessions/"):
-        raise ValueError("Invalid test-session URL")
+    try:
+        session = transport.request("POST", DEMO_API + "/testSessions", token,
+                                    capability_envelope)[1]
+    except (ValueError, TypeError, KeyError, OSError, urllib.error.URLError) as exc:
+        raise AcvpPreSessionError(
+            "REGISTER_SESSION", _pre_session_diagnostic(exc)) from None
+    try:
+        session_path = check_path(session.get("url", ""))
+        if not session_path.startswith(DEMO_API + "/testSessions/"):
+            raise ValueError("Invalid test-session URL")
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise AcvpPreSessionError(
+            "PARSE_REGISTRATION", "INVALID_SESSION_URL") from None
     report["test_session"] = session_path.rsplit("/", 1)[-1]
     session_token = session.get("accessToken", token)
     if not isinstance(session_token, str) or not session_token:
@@ -830,6 +874,9 @@ def main() -> int:
                          drbg_validation=drbg_validation)
     except (ValueError, TypeError, urllib.error.URLError, OSError) as exc:
         report["error_category"] = type(exc).__name__
+        if isinstance(exc, AcvpPreSessionError):
+            report["error_stage"] = exc.stage
+            report["diagnostic_code"] = exc.diagnostic_code
     finally:
         if ecc_rng is not None:
             ecc_rng.dispose()
