@@ -110,7 +110,7 @@ jobs:
               test_ecc_vectors.ECCNativeVectorTests \
               test_ecc_hcg_native.EccHcgNativeTests -v \
             2>&1 | tee "$RUNNER_TEMP/qsc-eddsa-hcg-native-preflight.log"
-          grep -Eq '^Ran 110 tests in' "$RUNNER_TEMP/qsc-eddsa-hcg-native-preflight.log"
+          grep -Eq '^Ran 114 tests in' "$RUNNER_TEMP/qsc-eddsa-hcg-native-preflight.log"
           grep -Eq '^OK$' "$RUNNER_TEMP/qsc-eddsa-hcg-native-preflight.log"
           if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-eddsa-hcg-native-preflight.log"; then
             echo 'FAIL: native EDDSA HCG preflight incomplete' >&2
@@ -137,7 +137,7 @@ jobs:
                   any(entry.get("pure") is not True or entry.get("preHash") is not False
                       for entry in registered[2:]) or
                   registered[2].get("contextLength") !=
-                      [{"min": 0, "max": 0, "increment": 1}] or
+                      [0] or
                   "contextLength" in registered[3]):
               raise SystemExit("FAIL: unsupported EDDSA capability registered")
           print("PASS: pure EDDSA keyGen/keyVer/sigGen/sigVer with native HCG")
