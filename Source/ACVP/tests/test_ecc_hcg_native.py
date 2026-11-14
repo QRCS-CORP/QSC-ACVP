@@ -167,6 +167,48 @@ class EccHcgNativeTests(unittest.TestCase):
         self.assertEqual(len(signatures), 1,
                          "FAIL: HCG-backed Ed25519 signature count")
 
+    def test_hcg_detecdsa_repeated_messages_are_deterministic_all_curves(self):
+        """Every advertised DetECDSA curve must repeat r and s for one key/message."""
+        message = b"NIST ACVP deterministic ECDSA with HCG"
+        for curve, reference, digest, width in (
+                ("P-256", ec.SECP256R1(), hashes.SHA256(), 32),
+                ("P-384", ec.SECP384R1(), hashes.SHA384(), 48),
+                ("P-521", ec.SECP521R1(), hashes.SHA512(), 66)):
+            with self.subTest(curve=curve):
+                messages = [message, message, b"other deterministic vector"]
+                public, signatures = self.ecc.ecdsa_sign_group(curve, messages)
+                self.assertEqual(len(signatures), len(messages),
+                                 f"FAIL: DetECDSA HCG signature count {curve}")
+                self.assertEqual(signatures[0], signatures[1],
+                                 f"FAIL: DetECDSA repeated signature differs {curve}")
+                self.assertEqual(len(public), 2 * width,
+                                 f"FAIL: DetECDSA public-key width {curve}")
+                numbers = ec.EllipticCurvePublicNumbers(
+                    int.from_bytes(public[:width], "big"),
+                    int.from_bytes(public[width:], "big"), reference)
+                verifying_key = numbers.public_key()
+                for signed_message, (r, sig_s) in zip(messages, signatures):
+                    self.assertEqual((len(r), len(sig_s)), (width, width),
+                                     f"FAIL: DetECDSA signature scalar width {curve}")
+                    signature = encode_dss_signature(
+                        int.from_bytes(r, "big"), int.from_bytes(sig_s, "big"))
+                    verifying_key.verify(signature, signed_message,
+                                        ec.ECDSA(digest))
+
+    def test_hcg_detecdsa_seeded_signature_reproducibility(self):
+        """A new HCG instance with identical seed must reproduce QSC signing."""
+        message = b"Same deterministic signing key and message"
+        expected = self.ecc.ecdsa_sign_group("P-256", [message, b""])
+        other_hcg = QscDrbg(self.drbg_path, "hcg")
+        try:
+            other_hcg.instantiate(bytes(range(32)), bytes(range(32, 48)))
+            independent = QscEcc(self.ecc_path, require_complete=True, rng=other_hcg)
+            actual = independent.ecdsa_sign_group("P-256", [message, b""])
+            self.assertEqual(actual, expected,
+                             "FAIL: DetECDSA seed replay changed public key or signatures")
+        finally:
+            other_hcg.dispose()
+
     def test_hcg_kas_and_xecdh_shared_secrets_verify_independently(self):
         server = ec.derive_private_key(7, ec.SECP256R1())
         point = server.public_key().public_numbers()
