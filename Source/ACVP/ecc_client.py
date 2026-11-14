@@ -348,6 +348,23 @@ class QscEcc:
             recovered, c.byref(length), memory(signed), len(signed), memory(public))
         return bool(result and length.value == len(message) and recovered.raw[:len(message)] == message)
 
+    def ecdh_public_from_private(self, curve, private):
+        """Derive the NIST prime-curve public point from an ACVP VAL scalar.
+
+        The existing QSC ECDSA scalar-base routine supplies the matching
+        uncompressed affine X||Y point for P-256, P-384, and P-521. No private
+        key is retained by this method.
+        """
+        name, size, _ = NIST_CURVES[curve]
+        if len(private) != size:
+            raise ValueError("Invalid ECDH private scalar length")
+        output = c.create_string_buffer(2 * size)
+        status = getattr(self._dll, f"qsc_{name}_publickey_from_privatekey")(
+            output, memory(private))
+        if status != 0 or not any(output.raw):
+            raise ValueError("Invalid ECDH private scalar")
+        return output.raw
+
     def ecdh_exchange(self, curve, peer, private):
         """Compute one SP800-56Ar3 ECDH Z or report an invalid public key."""
         name, size, _ = NIST_CURVES[curve]
@@ -451,6 +468,9 @@ def registration(algorithm, drbg_validation, mode=None, allow_same_session=False
             item["prereqVals"].append({"algorithm": "ECDSA", "valValue": "same"})
             item["scheme"] = {"staticUnified": {"kasRole": ["initiator", "responder"]}}
             item["domainParameterGenerationMethods"] = prime_curves
+            # The official ACVP-Server SSC registration sample uses "none"
+            # when full, un-hashed shared secrets are returned.
+            item["hashFunctionZ"] = "none"
         elif algorithm in ("ECDSA", "DetECDSA"):
             item["prereqVals"].append({"algorithm": "SHA", "valValue": "same"})
             if algorithm == "DetECDSA" or operation in ("sigVer",):
@@ -637,37 +657,60 @@ def build_kas_response(envelope, ecc):
             not isinstance(body.get("testGroups"), list)):
         raise ValueError("Unsupported KAS-ECC-SSC vector")
     groups = []
+    seen_groups = set()
+    seen_cases = set()
     for group in body["testGroups"]:
+        if not isinstance(group, dict):
+            raise ValueError("Malformed KAS test group")
+        if group.get("tgId") in seen_groups:
+            raise ValueError("Duplicate KAS test group")
+        seen_groups.add(group.get("tgId"))
         curve = group.get("domainParameterGenerationMode")
         test_type = group.get("testType")
         if (type(group.get("tgId")) is not int or curve not in NIST_CURVES or
                 group.get("scheme") != "staticUnified" or
                 group.get("kasRole") not in ("initiator", "responder") or
-                group.get("hashFunctionZ") is not None or
+                group.get("hashFunctionZ") not in (None, "none") or
                 test_type not in ("AFT", "VAL") or
                 not isinstance(group.get("tests"), list)):
             raise ValueError("KAS-ECC-SSC scheme or test group is not implemented")
         size = NIST_CURVES[curve][1]
         cases = []
         for item in group["tests"]:
-            if type(item.get("tcId")) is not int:
+            if not isinstance(item, dict) or type(item.get("tcId")) is not int:
                 raise ValueError("Missing KAS test identifier")
-            peer = fixed_integer(item.get("staticPublicServerX"), size) + \
-                   fixed_integer(item.get("staticPublicServerY"), size)
+            if item["tcId"] in seen_cases:
+                raise ValueError("Duplicate KAS test identifier")
+            seen_cases.add(item["tcId"])
             if test_type == "AFT":
+                peer = fixed_integer(item.get("staticPublicServerX"), size) + \
+                       fixed_integer(item.get("staticPublicServerY"), size)
                 public, z = ecc.ecdh_generate(curve, peer)
                 case = {"tcId": item["tcId"],
                         "staticPublicIutX": public[:size].hex().upper(),
                         "staticPublicIutY": public[size:].hex().upper(),
                         "z": z.hex().upper()}
             else:
-                local_private = fixed_integer(item.get("staticPrivateIut"), size)
-                expected = decode_hex(item.get("z"), expected=size)
-                try:
-                    z = ecc.ecdh_exchange(curve, peer, local_private)
-                    passed = hmac.compare_digest(z, expected)
-                except ValueError:
-                    passed = False
+                # A VAL vector may deliberately contain an out-of-range
+                # coordinate, scalar, or shared secret. Such well-formed
+                # negative inputs must return false without aborting the set.
+                x = keyver_coordinate(item.get("staticPublicServerX"), size)
+                y = keyver_coordinate(item.get("staticPublicServerY"), size)
+                ux = keyver_coordinate(item.get("staticPublicIutX"), size)
+                uy = keyver_coordinate(item.get("staticPublicIutY"), size)
+                local_private = keyver_coordinate(item.get("staticPrivateIut"), size)
+                expected = decode_hex(item.get("z"))
+                passed = False
+                if (x is not None and y is not None and ux is not None and
+                        uy is not None and local_private is not None and
+                        len(expected) == size):
+                    try:
+                        native_public = ecc.ecdh_public_from_private(curve, local_private)
+                        if hmac.compare_digest(native_public, ux + uy):
+                            z = ecc.ecdh_exchange(curve, x + y, local_private)
+                            passed = hmac.compare_digest(z, expected)
+                    except ValueError:
+                        passed = False
                 case = {"tcId": item["tcId"], "testPassed": passed}
             cases.append(case)
         groups.append({"tgId": group["tgId"], "tests": cases})
