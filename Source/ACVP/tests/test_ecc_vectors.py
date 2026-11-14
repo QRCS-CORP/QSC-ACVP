@@ -485,14 +485,13 @@ class ECCVectorTests(unittest.TestCase):
 
             def ecdh_public_from_private(self, curve, private):
                 self_private = (1).to_bytes(self.width, "big")
-                self.assert_private = private == self_private
-                if not self.assert_private:
+                if private != self_private:
                     raise ValueError("invalid scalar")
-                return b"\\x11" * self.width + b"\\x22" * self.width
+                return bytes([0x11]) * self.width + bytes([0x22]) * self.width
 
             def ecdh_exchange(self, curve, peer, private):
                 self.exchanges += 1
-                return b"\\x44" * self.width
+                return bytes([0x44]) * self.width
 
         for curve, width in (("P-256", 32), ("P-384", 48), ("P-521", 66)):
             with self.subTest(curve=curve):
