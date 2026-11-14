@@ -1,0 +1,221 @@
+# NIST ACVTS Demo KAS-ECC-SSC with same-session native HCG; manual and protected.
+name: QSC ACVTS Demo KAS-ECC-SSC HCG sample (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      qsc_ref:
+        description: 'Immutable production QSC source revision'
+        required: true
+        type: string
+        default: '5d85f25866f9fa08654791265f08f43f95674a53'
+      approve_nist_network_session:
+        description: 'I authorize one real authenticated NIST Demo KAS-ECC-SSC session'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsc-acvp-nist-demo-exclusive
+  cancel-in-progress: false
+
+jobs:
+  authenticated-kas_ssc:
+    name: NIST Demo KAS-ECC-SSC staticUnified SSC with same-session HCG
+    if: github.repository == 'QRCS-CORP/QSC-ACVP'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: acvts-demo
+
+    steps:
+      - name: Require explicit operator authorization and protected environment
+        shell: bash
+        env:
+          REQUEST_APPROVAL: ${{ inputs.approve_nist_network_session }}
+          DEMO_ENABLED: ${{ vars.ACVTS_DEMO_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$REQUEST_APPROVAL" = true || { echo 'FAIL: live KAS-ECC-SSC session not approved'; exit 1; }
+          test "$DEMO_ENABLED" = true || { echo 'FAIL: protected acvts-demo environment not enabled'; exit 1; }
+          echo 'PASS: explicit operator and environment approval'
+
+      - name: Checkout approved ECC qualification adapter
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Checkout immutable production QSC read-only
+        uses: actions/checkout@v4
+        with:
+          repository: QRCS-CORP/QSC
+          ref: ${{ inputs.qsc_ref }}
+          path: dependency/QSC
+          persist-credentials: false
+
+      - name: Verify immutable QSC source revision
+        shell: bash
+        env:
+          REQUIRED_SHA: ${{ inputs.qsc_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUIRED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'FAIL: expected immutable QSC source SHA'; exit 1; }
+          test "$(git -C dependency/QSC rev-parse HEAD)" = "$REQUIRED_SHA" || { echo 'FAIL: QSC source mismatch'; exit 1; }
+          echo 'PASS: source-pinned complete QSC ECC and HCG'
+
+      - name: Build full scalar QSC KAS-ECC-SSC HMAC DRBG and prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -S Source/ACVP -B "$RUNNER_TEMP/qsc-acvts-kas_ssc-hcg-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQSC_ACVP_TLS_CLASS=3 \
+            -DQSC_ACVP_ISA_PROFILE=scalar
+          grep -q '^QSC_ACVP_PROFILE_MACROS_VERIFIED:INTERNAL=1$' \
+            "$RUNNER_TEMP/qsc-acvts-kas_ssc-hcg-build/CMakeCache.txt"
+          cmake --build "$RUNNER_TEMP/qsc-acvts-kas_ssc-hcg-build" \
+            --target qsc_acvp_ecc qsc_acvp_drbg qsc_acvp_hash --parallel 2
+          test -s "$RUNNER_TEMP/qsc-acvts-kas_ssc-hcg-build/libqsc_acvp_ecc.so"
+          test -s "$RUNNER_TEMP/qsc-acvts-kas_ssc-hcg-build/libqsc_acvp_drbg.so"
+          test -s "$RUNNER_TEMP/qsc-acvts-kas_ssc-hcg-build/libqsc_acvp_hash.so"
+          echo 'PASS: full P-256/P-384/P-521 ECC and native HCG build'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install independent ECC reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check cryptography==46.0.4
+
+      - name: Require complete native ECC and HCG offline preflight
+        shell: bash
+        env:
+          QSC_ACVP_ECC_LIBRARY: ${{ runner.temp }}/qsc-acvts-kas_ssc-hcg-build/libqsc_acvp_ecc.so
+          QSC_ACVP_ECC_COMPLETE: '1'
+          QSC_ACVP_DRBG_LIBRARY: ${{ runner.temp }}/qsc-acvts-kas_ssc-hcg-build/libqsc_acvp_drbg.so
+        run: |
+          set -euo pipefail
+          python -m compileall -q Source/ACVP
+          PYTHONPATH="Source/ACVP:Source/ACVP/tests" \
+            python -m unittest \
+              test_drbg_native.DrbgNativeTests \
+              test_demo_client.DemoClientTests \
+              test_ecc_vectors.ECCVectorTests \
+              test_ecc_vectors.ECCNativeVectorTests \
+              test_ecc_hcg_native.EccHcgNativeTests -v \
+            2>&1 | tee "$RUNNER_TEMP/qsc-kas_ssc-hcg-native-preflight.log"
+          grep -Eq '^Ran 129 tests in' "$RUNNER_TEMP/qsc-kas_ssc-hcg-native-preflight.log"
+          grep -Eq '^OK$' "$RUNNER_TEMP/qsc-kas_ssc-hcg-native-preflight.log"
+          if grep -Eq 'FAILED|ERROR|skipped=' "$RUNNER_TEMP/qsc-kas_ssc-hcg-native-preflight.log"; then
+            echo 'FAIL: native KAS-ECC-SSC HCG preflight incomplete' >&2
+            exit 1
+          fi
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path("Source/ACVP").resolve()))
+          from demo_client import registration
+          selected = ("SHA2-256", "SHA2-384", "SHA2-512",
+                      "HMAC-SHA2-512", "hmacDRBG", "ECDSA", "KAS-ECC-SSC")
+          entries = registration(selected, "same")[1]["algorithms"]
+          kas = [entry for entry in entries if entry["algorithm"] == "KAS-ECC-SSC"]
+          ecdsa = [entry for entry in entries if entry["algorithm"] == "ECDSA"]
+          if (len(kas) != 1 or len(ecdsa) != 3 or
+                  [entry["mode"] for entry in ecdsa] !=
+                      ["keyGen", "keyVer", "sigVer"] or
+                  kas[0].get("mode") is not None or
+                  kas[0].get("scheme") !=
+                      {"staticUnified": {"kasRole": ["initiator", "responder"]}} or
+                  kas[0].get("domainParameterGenerationMethods") !=
+                      ["P-256", "P-384", "P-521"] or
+                  kas[0].get("hashFunctionZ") != "none" or
+                  kas[0].get("prereqVals") != [
+                      {"algorithm": "DRBG", "valValue": "same"},
+                      {"algorithm": "ECDSA", "valValue": "same"}]):
+              raise SystemExit("FAIL: KAS-ECC-SSC staticUnified capability registration")
+          print("PASS: P-256/P-384/P-521 KAS staticUnified with HCG and ECDSA prerequisites")
+          PY
+
+      - name: Materialize protected NIST identity
+        shell: bash
+        env:
+          NIST_CERT_B64: ${{ secrets.ACVTS_DEMO_CERT_B64 }}
+          NIST_KEY_B64: ${{ secrets.ACVTS_DEMO_KEY_B64 }}
+          NIST_TOTP_SEED_B64: ${{ secrets.ACVTS_DEMO_TOTP_B64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          test -n "$NIST_CERT_B64" || { echo 'FAIL: missing client certificate'; exit 1; }
+          test -n "$NIST_KEY_B64" || { echo 'FAIL: missing client private key'; exit 1; }
+          test -n "$NIST_TOTP_SEED_B64" || { echo 'FAIL: missing TOTP credential'; exit 1; }
+          printf '%s' "$NIST_CERT_B64" | base64 --decode > "$RUNNER_TEMP/acvts-kas_ssc-cert.pem"
+          printf '%s' "$NIST_KEY_B64" | base64 --decode > "$RUNNER_TEMP/acvts-kas_ssc-key.pem"
+          openssl x509 -noout -in "$RUNNER_TEMP/acvts-kas_ssc-cert.pem" >/dev/null
+          openssl pkey -noout -in "$RUNNER_TEMP/acvts-kas_ssc-key.pem" >/dev/null
+          cert_key="$(openssl x509 -in "$RUNNER_TEMP/acvts-kas_ssc-cert.pem" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')"
+          private_key="$(openssl pkey -in "$RUNNER_TEMP/acvts-kas_ssc-key.pem" -pubout -outform DER | sha256sum | awk '{print $1}')"
+          test "$cert_key" = "$private_key" || { echo 'FAIL: client certificate and private key do not match'; exit 1; }
+          echo 'PASS: protected NIST client identity verified'
+
+      - name: Run exactly one live KAS-ECC-SSC HCG NIST Demo session
+        shell: bash
+        env:
+          ACVP_TOTP_SEED: ${{ secrets.ACVTS_DEMO_TOTP_B64 }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          output="$RUNNER_TEMP/qsc-acvp-kas_ssc-demo-results"
+          mkdir -p "$output"
+          python Source/ACVP/demo_client.py \
+            --library "$RUNNER_TEMP/qsc-acvts-kas_ssc-hcg-build/libqsc_acvp_hash.so" \
+            --drbg-library "$RUNNER_TEMP/qsc-acvts-kas_ssc-hcg-build/libqsc_acvp_drbg.so" \
+            --ecc-library "$RUNNER_TEMP/qsc-acvts-kas_ssc-hcg-build/libqsc_acvp_ecc.so" \
+            --cert "$RUNNER_TEMP/acvts-kas_ssc-cert.pem" \
+            --key "$RUNNER_TEMP/acvts-kas_ssc-key.pem" \
+            --output "$output" \
+            --algorithms SHA2-256 SHA2-384 SHA2-512 HMAC-SHA2-512 hmacDRBG ECDSA KAS-ECC-SSC
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path(os.environ["RUNNER_TEMP"]) / "qsc-acvp-kas_ssc-demo-results/demo-results.json"
+          data = json.loads(path.read_text(encoding="utf-8"))
+          selected = ["SHA2-256", "SHA2-384", "SHA2-512",
+                      "HMAC-SHA2-512", "hmacDRBG", "ECDSA", "KAS-ECC-SSC"]
+          vectors = data.get("vectors", [])
+          kas = [v for v in vectors if v.get("algorithm") == "KAS-ECC-SSC"]
+          ecdsa_modes = {v.get("mode") for v in vectors
+                         if v.get("algorithm") == "ECDSA"}
+          if (data.get("status") != "PASS_DEMO_SAMPLE" or
+                  data.get("server_passed") is not True or
+                  data.get("registration_algorithms") != selected or
+                  len(kas) != 1 or kas[0].get("mode") is not None or
+                  kas[0].get("status") != "SUBMITTED" or
+                  ecdsa_modes != {"keyGen", "keyVer", "sigVer"}):
+              raise SystemExit("FAIL: KAS-ECC-SSC complete NIST Demo verdict")
+          print("PASS: NIST KAS staticUnified SSC with HCG and ECDSA prerequisites")
+          PY
+
+      - name: Delete ephemeral NIST identity
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -f "$RUNNER_TEMP/acvts-kas_ssc-cert.pem" "$RUNNER_TEMP/acvts-kas_ssc-key.pem"
+
+      - name: Upload sanitized KAS-ECC-SSC verdict only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsc-acvp-real-nist-demo-kas_ssc-hcg
+          path: ${{ runner.temp }}/qsc-acvp-kas_ssc-demo-results/demo-results.json
+          if-no-files-found: warn
+          retention-days: 7
