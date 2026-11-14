@@ -505,26 +505,55 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                 not validated.rsplit("/", 1)[-1].isdigit() or validated in expected_paths):
             raise ValueError("Invalid or duplicate vector-set URL in session")
         expected_paths.add(validated)
+    # The server generates vector sets independently. Respect its retry delay
+    # without serially exhausting one short attempt limit per algorithm.
+    # This shared 18-minute budget leaves time for final verdict polling within
+    # the manually authorized workflow's 35-minute job limit.
+    vector_deadline = time.monotonic() + 18 * 60
+    due = {}
+    vector_reports = {}
     for path in urls:
-        vector_result = {"vector_set": None, "algorithm": "UNKNOWN", "status": "FAIL"}
+        validated = check_path(path)
+        due[validated] = 0.0
+        vector_result = {"vector_set": validated.rsplit("/", 1)[-1],
+                         "algorithm": "UNKNOWN", "status": "PENDING"}
         report["vectors"].append(vector_result)
+        vector_reports[validated] = vector_result
+
+    while due:
+        now = time.monotonic()
+        remaining = vector_deadline - now
+        if remaining <= 0:
+            for pending_path in due:
+                pending_result = vector_reports[pending_path]
+                pending_result["status"] = "FAIL"
+                pending_result["reason"] = "ValueError"
+                pending_result["stage"] = "FETCH_VECTOR"
+                pending_result["diagnostic_code"] = "VECTOR_GENERATION_TIMEOUT"
+            break
+        validated = min(due, key=due.get)
+        if due[validated] > now:
+            time.sleep(min(due[validated] - now, remaining))
+            continue
+        del due[validated]
+        vector_result = vector_reports[validated]
         stage = "FETCH_VECTOR"
         try:
-            validated = check_path(path)
-            if not validated.startswith(session_path + "/vectorSets/") or validated.endswith("/results"):
-                raise ValueError("Vector-set URL is not part of this session")
-            vector_result["vector_set"] = validated.rsplit("/", 1)[-1]
             request = transport.request("GET", validated, session_token)
-            for attempt in range(8):
-                retry = request[1].get("retry")
-                if retry is None:
-                    break
-                if type(retry) not in (int, float) or retry < 0:
+            retry = request[1].get("retry")
+            if retry is not None:
+                if (type(retry) not in (int, float) or retry < 0 or
+                        (type(retry) is float and not 0 <= retry < float("inf"))):
                     raise ValueError("Invalid ACVP retry interval")
-                if attempt == 7:
-                    raise ValueError("ACVP vector generation did not complete before retry limit")
-                time.sleep(min(max(retry, 1), 30))
-                request = transport.request("GET", validated, session_token)
+                if ("vsId" in request[1] and
+                        (type(request[1]["vsId"]) is not int or
+                         str(request[1]["vsId"]) != vector_result["vector_set"])):
+                    raise ValueError("Downloaded vector set does not match requested vsId")
+                vector_result["retry_count"] = vector_result.get("retry_count", 0) + 1
+                # NIST's value is a minimum interval, not a 30-second cap.
+                # Voluntarily wait at least 30 seconds to avoid server load.
+                due[validated] = time.monotonic() + max(retry, 30)
+                continue
             if (type(request[1].get("vsId")) is not int or
                     str(request[1]["vsId"]) != vector_result["vector_set"]):
                 raise ValueError("Downloaded vector set does not match requested vsId")
@@ -562,6 +591,15 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
             # may include URLs, bearer tokens or request bodies in their error strings.
             vector_result["reason"] = type(exc).__name__
             vector_result["stage"] = stage
+            if stage == "FETCH_VECTOR":
+                codes = {
+                    "Invalid ACVP retry interval": "INVALID_RETRY_INTERVAL",
+                    "Downloaded vector set does not match requested vsId": "VECTOR_ID_MISMATCH",
+                    "Unregistered or unsupported algorithm in vector set":
+                        "UNREGISTERED_ALGORITHM",
+                }
+                vector_result["diagnostic_code"] = codes.get(
+                    str(exc), _pre_session_diagnostic(exc))
             if vector_result["algorithm"] == KDA_HKDF and isinstance(exc, ValueError):
                 # Fixed, reviewed categories identify schema/capability mismatches.
                 # Never serialize arbitrary exception text, secrets, or vector bytes.
@@ -745,7 +783,12 @@ def execute(transport, qsc: QSC, seed: str, selected: tuple[str, ...], poll_coun
                 vector_result["diagnostic_code"] = slh_errors.get(
                     str(exc), "UNCLASSIFIED_VALUE_ERROR")
     if any(item["status"] == "FAIL" for item in report["vectors"]):
-        report["status"] = "FAIL_OR_UNSUPPORTED_VECTOR"
+        timeout_only = all(
+            item["status"] == "SUBMITTED" or
+            item.get("diagnostic_code") == "VECTOR_GENERATION_TIMEOUT"
+            for item in report["vectors"])
+        report["status"] = ("NIST_VECTOR_GENERATION_TIMEOUT" if timeout_only else
+                            "FAIL_OR_UNSUPPORTED_VECTOR")
         return report
     executed = {item["algorithm"] for item in report["vectors"]
                 if item["status"] == "SUBMITTED"}
