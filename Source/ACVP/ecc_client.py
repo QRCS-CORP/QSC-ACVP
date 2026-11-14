@@ -662,7 +662,9 @@ def build_kas_response(envelope, ecc):
     for group in body["testGroups"]:
         if not isinstance(group, dict):
             raise ValueError("Malformed KAS test group")
-        if group.get("tgId") in seen_groups:
+        if type(group.get("tgId")) is not int:
+            raise ValueError("Malformed KAS test group")
+        if group["tgId"] in seen_groups:
             raise ValueError("Duplicate KAS test group")
         seen_groups.add(group.get("tgId"))
         curve = group.get("domainParameterGenerationMode")
