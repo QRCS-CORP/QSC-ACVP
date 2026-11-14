@@ -273,7 +273,7 @@ class ECCVectorTests(unittest.TestCase):
             self.assertIs(item["preHash"], False,
                           "FAIL: unsupported EDDSA preHash advertised")
         self.assertEqual(eddsa[2]["contextLength"],
-                         [{"min": 0, "max": 0, "increment": 1}],
+                         [0],
                          "FAIL: Ed448 pure sigGen context must be zero")
         self.assertNotIn("contextLength", eddsa[3],
                          "FAIL: EDDSA sigVer must not advertise contextLength")
@@ -281,6 +281,24 @@ class ECCVectorTests(unittest.TestCase):
                                msg="FAIL: EDDSA same-session DRBG without HCG accepted"):
             demo_registration(("SHA2-512", "SHAKE-256", "HMAC-SHA2-512", "EDDSA"),
                               "same")
+
+    def test_eddsa_context_registration_uses_canonical_singleton_domain(self):
+        """NIST contextLength accepts the zero-byte pure Ed448 singleton domain."""
+        from demo_client import registration as demo_registration
+        capabilities = demo_registration(
+            ("SHA2-512", "SHAKE-256", "HMAC-SHA2-512", "hmacDRBG", "EDDSA"),
+            "same")[1]["algorithms"]
+        eddsa = [item for item in capabilities if item["algorithm"] == "EDDSA"]
+        self.assertEqual(eddsa[2]["mode"], "sigGen",
+                         "FAIL: expected EdDSA sigGen capability")
+        self.assertEqual(eddsa[2]["contextLength"], [0],
+                         "FAIL: EDDSA zero-length context must use singleton domain")
+        self.assertNotIn("contextLength", eddsa[3],
+                         "FAIL: EDDSA sigVer must omit contextLength")
+        self.assertEqual(eddsa[2]["curve"], ["ED-25519", "ED-448"],
+                         "FAIL: EDDSA pure signing must advertise both native curves")
+        self.assertIs(eddsa[2]["preHash"], False,
+                      "FAIL: unsupported EdDSA prehash must not be advertised")
 
     def test_eddsa_siggen_bit_flip_test_both_curves(self):
         """ACVP EDDSA pure sigGen BFT groups use the standard signature response."""
