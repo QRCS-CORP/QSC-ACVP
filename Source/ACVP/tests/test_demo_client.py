@@ -56,6 +56,7 @@ import importlib.util
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 TOOL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOL_ROOT))
@@ -233,6 +234,142 @@ class DemoClientTests(unittest.TestCase):
                                 ("SHA2-256",), poll_count=1)
         self.assertEqual(report["status"], "FAIL_OR_UNSUPPORTED_VECTOR")
         self.assertFalse(report["server_passed"])
+
+    def test_pending_prerequisite_vectors_share_one_readiness_budget(self):
+        """Nine NIST retry responses must not block a second ready vector."""
+        class PendingAndReady(FakeTransport):
+            def __init__(self):
+                super().__init__()
+                self.other = self.session + "/vectorSets/92"
+                self.first_fetch_count = 0
+
+            def request(self, method, path, token=None, body=None):
+                if method == "POST" and path == client.DEMO_API + "/testSessions":
+                    response = super().request(method, path, token, body)
+                    response[1]["vectorSetUrls"].append(self.other)
+                    return response
+                if method == "GET" and path == self.vector:
+                    self.first_fetch_count += 1
+                    if self.first_fetch_count <= 9:
+                        self.calls.append((method, path, token, body))
+                        return [{"acvVersion": "1.0"},
+                                {"vsId": 91, "retry": 30}]
+                if method == "GET" and path == self.other:
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"},
+                            {"vsId": 92, "algorithm": "SHA2-256",
+                             "revision": "1.0",
+                             "testGroups": [{"tgId": 5, "testType": "AFT",
+                                             "tests": [{"tcId": 11, "msg": "616263",
+                                                        "len": 24}]}]}]
+                if method == "POST" and path == self.other + "/results":
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"}, {}]
+                if method == "GET" and path == self.session + "/results":
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"}, {"passed": True,
+                            "results": [
+                                {"vectorSetUrl": self.vector, "status": "passed"},
+                                {"vectorSetUrl": self.other, "status": "passed"}]}]
+                return super().request(method, path, token, body)
+
+        clock = [200.0]
+        sleeps = []
+        def monotonic():
+            return clock[0]
+        def sleep(seconds):
+            self.assertGreaterEqual(seconds, 30,
+                                    "FAIL: NIST retry interval was shortened")
+            sleeps.append(seconds)
+            clock[0] += seconds
+        server = PendingAndReady()
+        with mock.patch.object(client.time, "monotonic", side_effect=monotonic):
+            with mock.patch.object(client.time, "sleep", side_effect=sleep):
+                report = client.execute(
+                    server, Oracle(), "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                    ("SHA2-256",), poll_count=1)
+        self.assertEqual(report["status"], "PASS_DEMO_SAMPLE",
+                         "FAIL: delayed NIST prerequisite should eventually pass")
+        self.assertEqual(report["vectors"][0]["retry_count"], 9,
+                         "FAIL: vector readiness must exceed prior eight-attempt limit")
+        self.assertEqual(server.first_fetch_count, 10,
+                         "FAIL: delayed vector retried wrong number of times")
+        self.assertEqual(len(sleeps), 9, "FAIL: retry schedule count")
+        self.assertTrue(all(value >= 30 for value in sleeps),
+                        "FAIL: server-requested retry delay not respected")
+        paths = [path for method, path, _, _ in server.calls if method == "GET"]
+        self.assertLess(paths.index(server.other), len(paths) - 1,
+                        "FAIL: ready vector was not interleaved")
+        self.assertNotIn("private-session-token", str(report),
+                         "FAIL: session token leaked to readiness evidence")
+
+    def test_acvp_retry_delay_is_minimum_not_thirty_second_cap(self):
+        """Wait for the entire server-requested 120 seconds without overpolling."""
+        class SlowGeneration(FakeTransport):
+            def __init__(self):
+                super().__init__()
+                self.gets = 0
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    self.gets += 1
+                    if self.gets == 1:
+                        self.calls.append((method, path, token, body))
+                        return [{"acvVersion": "1.0"}, {"vsId": 91, "retry": 120}]
+                return super().request(method, path, token, body)
+        now = [1000.0]
+        delays = []
+        def sleep(seconds):
+            delays.append(seconds)
+            now[0] += seconds
+        server = SlowGeneration()
+        with mock.patch.object(client.time, "monotonic", side_effect=lambda: now[0]):
+            with mock.patch.object(client.time, "sleep", side_effect=sleep):
+                report = client.execute(server, Oracle(),
+                                        "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                                        ("SHA2-256",), poll_count=1)
+        self.assertEqual(report["status"], "PASS_DEMO_SAMPLE",
+                         "FAIL: server retry delay prevented qualification")
+        self.assertEqual(delays, [120],
+                         "FAIL: client incorrectly capped NIST retry to 30 seconds")
+        self.assertEqual(server.gets, 2, "FAIL: unexpected NIST server polling load")
+
+    def test_acvp_vector_generation_deadline_fails_without_resubmission(self):
+        """Slow vector generation is not mistaken for a cryptographic failure."""
+        class VerySlowGeneration(FakeTransport):
+            def __init__(self):
+                super().__init__()
+                self.gets = 0
+            def request(self, method, path, token=None, body=None):
+                if method == "GET" and path == self.vector:
+                    self.gets += 1
+                    self.calls.append((method, path, token, body))
+                    return [{"acvVersion": "1.0"}, {"vsId": 91, "retry": 3600}]
+                return super().request(method, path, token, body)
+        now = [400.0]
+        delays = []
+        def sleep(seconds):
+            delays.append(seconds)
+            now[0] += seconds
+        server = VerySlowGeneration()
+        with mock.patch.object(client.time, "monotonic", side_effect=lambda: now[0]):
+            with mock.patch.object(client.time, "sleep", side_effect=sleep):
+                report = client.execute(
+                    server, Oracle(), "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                    ("SHA2-256",), poll_count=1)
+        self.assertEqual(report["status"], "NIST_VECTOR_GENERATION_TIMEOUT",
+                         "FAIL: pending NIST vector misclassified as crypto failure")
+        self.assertEqual(report["vectors"][0]["diagnostic_code"],
+                         "VECTOR_GENERATION_TIMEOUT",
+                         "FAIL: generation deadline lacks sanitized diagnosis")
+        self.assertEqual(server.gets, 1,
+                         "FAIL: ignored server retry value caused excess requests")
+        self.assertEqual(delays, [18 * 60],
+                         "FAIL: global deadline did not bound run time")
+        self.assertFalse(any(method == "POST" and path.endswith("/results")
+                             for method, path, _, _ in server.calls),
+                         "FAIL: client submitted results for incomplete vector")
+        self.assertNotIn("private-session-token", str(report),
+                         "FAIL: secret token leaked into timeout evidence")
 
     def test_non401_network_error_does_not_retry_ambiguous_submission(self):
         """Network errors are fail-closed rather than causing duplicate POSTs."""
