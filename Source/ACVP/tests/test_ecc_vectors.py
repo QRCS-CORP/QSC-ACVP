@@ -955,6 +955,63 @@ class ECCNativeVectorTests(unittest.TestCase):
         expected = private.exchange(x448.X448PublicKey.from_public_bytes(public))
         self.assertEqual(secret, expected)
 
+    def test_qsc_kas_native_val_rejects_mismatched_keys_all_curves(self):
+        """Compare QSC static-pair validation with independent EC public derivation."""
+        for name, curve, size in (
+                ("P-256", ec.SECP256R1(), 32),
+                ("P-384", ec.SECP384R1(), 48),
+                ("P-521", ec.SECP521R1(), 66)):
+            with self.subTest(curve=name):
+                server = ec.derive_private_key(523, curve)
+                local = ec.derive_private_key(703, curve)
+                server_public = server.public_key().public_numbers()
+                local_public = local.public_key().public_numbers()
+                scalar = (703).to_bytes(size, "big")
+                derived = self.ecc.ecdh_public_from_private(name, scalar)
+                reference = (local_public.x.to_bytes(size, "big") +
+                             local_public.y.to_bytes(size, "big"))
+                self.assertEqual(derived, reference,
+                                 f"FAIL: QSC KAS private-to-public {name}")
+                fields = {"tcId": 1,
+                          "staticPublicServerX": f"{server_public.x:0{size * 2}X}",
+                          "staticPublicServerY": f"{server_public.y:0{size * 2}X}",
+                          "staticPrivateIut": scalar.hex().upper(),
+                          "staticPublicIutX": f"{local_public.x:0{size * 2}X}",
+                          "staticPublicIutY": f"{local_public.y:0{size * 2}X}",
+                          "z": local.exchange(ec.ECDH(), server.public_key()).hex()}
+                group = {"tgId": 42, "testType": "VAL", "scheme": "staticUnified",
+                         "kasRole": "initiator",
+                         "domainParameterGenerationMode": name,
+                         "hashFunctionZ": "none",
+                         "tests": [fields]}
+                def verdict():
+                    result = build_kas_response(
+                        vector("KAS-ECC-SSC", None, "Sp800-56Ar3", group),
+                        self.ecc)
+                    return result[1]["testGroups"][0]["tests"][0]["testPassed"]
+                self.assertTrue(verdict(), f"FAIL: native KAS valid SSC {name}")
+                wrong = dict(fields)
+                wrong["staticPublicIutX"] = ("00" if name != "P-521" else "01") + (
+                    wrong["staticPublicIutX"][2:])
+                group["tests"] = [wrong]
+                self.assertFalse(verdict(),
+                                 f"FAIL: KAS VAL ignored wrong local public {name}")
+                wrong = dict(fields)
+                wrong["staticPublicServerX"] = "FF" * size
+                group["tests"] = [wrong]
+                self.assertFalse(verdict(),
+                                 f"FAIL: KAS VAL accepted invalid peer {name}")
+                wrong = dict(fields)
+                wrong["staticPrivateIut"] = "00" * size
+                group["tests"] = [wrong]
+                self.assertFalse(verdict(),
+                                 f"FAIL: KAS VAL accepted zero private scalar {name}")
+                wrong = dict(fields)
+                wrong["z"] = "00" * size
+                group["tests"] = [wrong]
+                self.assertFalse(verdict(),
+                                 f"FAIL: KAS VAL accepted incorrect shared Z {name}")
+
     def test_qsc_kas_ecc_static_unified_all_curves_aft_and_val(self):
         configurations = (("P-256", ec.SECP256R1(), 32),
                           ("P-384", ec.SECP384R1(), 48),
