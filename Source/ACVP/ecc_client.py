@@ -469,7 +469,7 @@ def registration(algorithm, drbg_validation, mode=None, allow_same_session=False
                 if operation == "sigGen":
                     # Context-length advertisement is valid for Ed448 sigGen,
                     # but is not part of the EdDSA sigVer registration schema.
-                    item["contextLength"] = [{"min": 0, "max": 0, "increment": 1}]
+                    item["contextLength"] = [0]
             item["curve"] = ed_curves
         else:
             item["curve"] = x_curves

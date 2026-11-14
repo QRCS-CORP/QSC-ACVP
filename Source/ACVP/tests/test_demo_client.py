@@ -124,6 +124,74 @@ class DemoClientTests(unittest.TestCase):
             with self.subTest(timestamp=timestamp), self.assertRaises(ValueError):
                 client.totp(seed, timestamp)
 
+    def test_rejected_registration_reports_http_status_without_server_text(self):
+        """Registration HTTP failures yield a fixed stage and bounded status code."""
+        class Rejected(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "POST" and path == client.DEMO_API + "/testSessions":
+                    raise ValueError("ACVP request rejected with HTTP 400")
+                return super().request(method, path, token, body)
+
+        server = Rejected()
+        selected = ("SHA2-512", "SHAKE-256", "HMAC-SHA2-512",
+                    "hmacDRBG", "EDDSA")
+        with self.assertRaises(client.AcvpPreSessionError) as caught:
+            client.execute(server, Oracle(),
+                           "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                           selected, poll_count=1, drbg_validation="same")
+        self.assertEqual(caught.exception.stage, "REGISTER_SESSION",
+                         "FAIL: rejected EDDSA registration stage")
+        self.assertEqual(caught.exception.diagnostic_code, "HTTP_400",
+                         "FAIL: sanitized NIST registration HTTP code")
+        self.assertNotIn("private-login-token", str(caught.exception),
+                         "FAIL: NIST login token entered diagnostics")
+        self.assertFalse(any(method == "GET" and "/vectorSets" in path
+                             for method, path, _, _ in server.calls),
+                         "FAIL: vector fetch started before registration")
+
+    def test_registration_missing_session_url_is_diagnostic_not_raw_text(self):
+        """Unexpected registration response must not be logged verbatim."""
+        class InvalidRegistration(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "POST" and path == client.DEMO_API + "/testSessions":
+                    return [{"acvVersion": "1.0"},
+                            {"accessToken": "private-session-token",
+                             "unexpectedSecret": "sensitive-server-error-text"}]
+                return super().request(method, path, token, body)
+
+        with self.assertRaises(client.AcvpPreSessionError) as caught:
+            client.execute(InvalidRegistration(), Oracle(),
+                           "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                           ("SHA2-256",), poll_count=1)
+        self.assertEqual((caught.exception.stage, caught.exception.diagnostic_code),
+                         ("PARSE_REGISTRATION", "INVALID_SESSION_URL"),
+                         "FAIL: rejected registration response not categorized")
+        self.assertNotIn("sensitive-server-error-text", str(caught.exception),
+                         "FAIL: raw registration response leaked")
+
+    def test_login_failure_and_unclassified_errors_are_redacted(self):
+        """Login cannot leak raw server messages; no session registration follows."""
+        class RejectLogin(FakeTransport):
+            def request(self, method, path, token=None, body=None):
+                if method == "POST" and path == client.DEMO_API + "/login":
+                    raise client.AcvpUnauthorized("sensitive-login-error-text")
+                return super().request(method, path, token, body)
+
+        server = RejectLogin()
+        with self.assertRaises(client.AcvpPreSessionError) as caught:
+            client.execute(server, Oracle(),
+                           "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+                           ("SHA2-256",), poll_count=1)
+        self.assertEqual((caught.exception.stage, caught.exception.diagnostic_code),
+                         ("LOGIN", "HTTP_401"),
+                         "FAIL: sanitized login rejection stage")
+        self.assertNotIn("sensitive-login-error-text", str(caught.exception),
+                         "FAIL: login error response leaked")
+        self.assertEqual(
+            client._pre_session_diagnostic(ValueError("private-server-response")),
+            "UNCLASSIFIED_VALUE_ERROR",
+            "FAIL: unknown server error should remain opaque")
+
     def test_expired_session_token_refreshes_once_and_preserves_claims(self):
         """Only an explicit 401 permits one scoped TOTP login and replay."""
         class ExpiringTransport(FakeTransport):
