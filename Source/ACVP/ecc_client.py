@@ -356,8 +356,9 @@ class QscEcc:
         key is retained by this method.
         """
         name, size, _ = NIST_CURVES[curve]
-        if len(private) != size:
-            raise ValueError("Invalid ECDH private scalar length")
+        if (len(private) != size or
+                not 1 <= int.from_bytes(private, "big") < CURVE_ORDERS[curve]):
+            raise ValueError("Invalid ECDH private scalar length or range")
         output = c.create_string_buffer(2 * size)
         status = getattr(self._dll, f"qsc_{name}_publickey_from_privatekey")(
             output, memory(private))
