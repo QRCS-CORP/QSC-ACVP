@@ -1,0 +1,1035 @@
+{
+  "document_id": "QRCS-QSC-ACVTS-2026-11-EVIDENCE-001",
+  "schema_version": "1.0",
+  "generated_utc": "2026-11-14T03:14:11.686531+00:00",
+  "program": "QSC NIST ACVTS Demo sample qualification",
+  "qualification_type": "NIST_ACVTS_DEMO_SAMPLE_NOT_CAVP_CERTIFICATE",
+  "target_count": 25,
+  "source_revision_note": "QSC SHA values extracted from the workflow at each Actions run head SHA. Representative job logs independently confirm actual checkout for SHA2-256, ML-KEM, HMAC_DRBG and KAS-ECC-SSC. Other individual run logs were not exhaustively extracted.",
+  "records": [
+    {
+      "target": "SHA2-256",
+      "test_session": "787624",
+      "github_run_id": 43321340135,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43321340135",
+      "artifact_id": 13990472131,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-12T22:35:54.474236+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "incomplete"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148700",
+          "algorithm": "SHA2-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/01_SHA2-256_session_787624.json",
+      "sanitized_json_sha256": "8f833b293bfc3f9b66e9562f1a9a553559e77b7389c277326605a2f16f7f7140",
+      "original_artifact": "archived_actions_artifacts/01_SHA2-256_session_787624_actions_artifact.zip",
+      "original_artifact_sha256": "0c2e37845184d13a1a52d40a865e6d866f723419595ff6b54bdbc0cece70c6e5"
+    },
+    {
+      "target": "SHA2-384",
+      "test_session": "787625",
+      "github_run_id": 43328100214,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43328100214",
+      "artifact_id": 13992789114,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-12T23:21:14.854256+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148701",
+          "algorithm": "SHA2-384",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/02_SHA2-384_session_787625.json",
+      "sanitized_json_sha256": "6facdf7817b1f2b3241614d18b929690a47281f8f7da03a0986a9ff96584454d",
+      "original_artifact": "archived_actions_artifacts/02_SHA2-384_session_787625_actions_artifact.zip",
+      "original_artifact_sha256": "46445e6e78204e48404edf5ec94e02680c8ecc2fb2e1f9c28ad7124df8c07c5c"
+    },
+    {
+      "target": "SHA2-512",
+      "test_session": "787626",
+      "github_run_id": 43328944584,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43328944584",
+      "artifact_id": 13994276583,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-12T23:27:24.238011+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148702",
+          "algorithm": "SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/03_SHA2-512_session_787626.json",
+      "sanitized_json_sha256": "021fa475cc63810b2484086f0aeffeb1c8cb49763e302b0197821d1194e64ffe",
+      "original_artifact": "archived_actions_artifacts/03_SHA2-512_session_787626_actions_artifact.zip",
+      "original_artifact_sha256": "c955213efe0fa92b5cd520bfaa68d726bed397b31cea6f147f4cd70bc230c50e"
+    },
+    {
+      "target": "SHA3-256",
+      "test_session": "787627",
+      "github_run_id": 43329645114,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43329645114",
+      "artifact_id": 13993838174,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-12T23:32:17.100444+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148703",
+          "algorithm": "SHA3-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/04_SHA3-256_session_787627.json",
+      "sanitized_json_sha256": "8e871734f3171c248edac98b782428dda2148b4feaaccb2915d46d4386c8c118",
+      "original_artifact": "archived_actions_artifacts/04_SHA3-256_session_787627_actions_artifact.zip",
+      "original_artifact_sha256": "6917c25b5d78909af6c29a05fd20fbb59626e057b5da0ea9f9121e0541fcff95"
+    },
+    {
+      "target": "SHA3-512",
+      "test_session": "787637",
+      "github_run_id": 43338490656,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43338490656",
+      "artifact_id": 13998382757,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T00:37:30.822203+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148741",
+          "algorithm": "SHA3-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/05_SHA3-512_session_787637.json",
+      "sanitized_json_sha256": "871d621b94f14ac3465584081733e3d2f3d517b737aa9eb224a1ad4b1be1e0df",
+      "original_artifact": "archived_actions_artifacts/05_SHA3-512_session_787637_actions_artifact.zip",
+      "original_artifact_sha256": "90c787ecc35ef8f9a46e787be0644558620da5f679ad90a3bcceb0f2615ba2bb"
+    },
+    {
+      "target": "SHAKE-128",
+      "test_session": "787639",
+      "github_run_id": 43339494189,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43339494189",
+      "artifact_id": 13998638485,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T00:45:01.547899+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148744",
+          "algorithm": "SHAKE-128",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/06_SHAKE-128_session_787639.json",
+      "sanitized_json_sha256": "3c24e7dd5c0b9cc6efa3fb777c49b3d69b492c21be84daea0e5956507f144faa",
+      "original_artifact": "archived_actions_artifacts/06_SHAKE-128_session_787639_actions_artifact.zip",
+      "original_artifact_sha256": "77bad3f02f7749060612362f28641ca55a455e020380ff7c32d2301a8aca4c8b"
+    },
+    {
+      "target": "SHAKE-256",
+      "test_session": "787641",
+      "github_run_id": 43340356998,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43340356998",
+      "artifact_id": 13998987309,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T00:51:30.729009+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148747",
+          "algorithm": "SHAKE-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/07_SHAKE-256_session_787641.json",
+      "sanitized_json_sha256": "04a3ec782bdd32623e899e607cb28a329ba66be10544c3d330bb454cb2c99078",
+      "original_artifact": "archived_actions_artifacts/07_SHAKE-256_session_787641_actions_artifact.zip",
+      "original_artifact_sha256": "e9e3abd1700366b832c8eb84aa1f60c79774a4bf2a9b1093a3f33ab621d39c97"
+    },
+    {
+      "target": "HMAC-SHA2-256",
+      "test_session": "787644",
+      "github_run_id": 43341213710,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43341213710",
+      "artifact_id": 13999372612,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T00:58:09.250404+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148782",
+          "algorithm": "SHA2-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148783",
+          "algorithm": "HMAC-SHA2-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/08_HMAC-SHA2-256_session_787644.json",
+      "sanitized_json_sha256": "7fdd724e7a5d2f19b07c93d3dcf60b062d9a495430622c4792539908be912700",
+      "original_artifact": "archived_actions_artifacts/08_HMAC-SHA2-256_session_787644_actions_artifact.zip",
+      "original_artifact_sha256": "b6e714b1cb222322971da0e614272bda515cdfe378625f7daa114884a53cb9f3"
+    },
+    {
+      "target": "HMAC-SHA2-384",
+      "test_session": "787646",
+      "github_run_id": 43341894638,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43341894638",
+      "artifact_id": 13999836832,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T01:03:25.094964+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148786",
+          "algorithm": "SHA2-384",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148787",
+          "algorithm": "HMAC-SHA2-384",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/09_HMAC-SHA2-384_session_787646.json",
+      "sanitized_json_sha256": "754e193a958219cae25605cdd637b5ca90e29152c7b7d142cb173400fdb2836d",
+      "original_artifact": "archived_actions_artifacts/09_HMAC-SHA2-384_session_787646_actions_artifact.zip",
+      "original_artifact_sha256": "67cf7d726e31742dcc2f349ca383c4a6c2bd42f69fe1e6abe36595b98426d7d0"
+    },
+    {
+      "target": "HMAC-SHA2-512",
+      "test_session": "787648",
+      "github_run_id": 43342406504,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43342406504",
+      "artifact_id": 13999747507,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T01:07:15.796104+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148790",
+          "algorithm": "SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148791",
+          "algorithm": "HMAC-SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/10_HMAC-SHA2-512_session_787648.json",
+      "sanitized_json_sha256": "9c516200dea1d71a203a67d517bcae99b2bc7adb4f759b4e57e586bc4d9e2679",
+      "original_artifact": "archived_actions_artifacts/10_HMAC-SHA2-512_session_787648_actions_artifact.zip",
+      "original_artifact_sha256": "624059796fc933334839d7699d4e866ee0b4b11979931659f72d118efaacf3e3"
+    },
+    {
+      "target": "AES-ECB",
+      "test_session": "787654",
+      "github_run_id": 43350776946,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43350776946",
+      "artifact_id": 14004196022,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T02:15:14.425726+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148849",
+          "algorithm": "ACVP-AES-ECB",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/11_AES-ECB_session_787654.json",
+      "sanitized_json_sha256": "25bd1490de93aa230a6ab63f8953fef4545a0ae3e3dcfb486dd6b273dc420439",
+      "original_artifact": "archived_actions_artifacts/11_AES-ECB_session_787654_actions_artifact.zip",
+      "original_artifact_sha256": "cb4e9ad09187ec610c47111fc1af304cbc5dcc48a3605a85927df5121499aed2"
+    },
+    {
+      "target": "AES-CBC",
+      "test_session": "787656",
+      "github_run_id": 43351680223,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43351680223",
+      "artifact_id": 14004655457,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T02:22:29.276434+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148851",
+          "algorithm": "ACVP-AES-CBC",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/12_AES-CBC_session_787656.json",
+      "sanitized_json_sha256": "b5651f576f24ae38cb771d56b52c9f366b708eaa1a825e04044142eee8886ab6",
+      "original_artifact": "archived_actions_artifacts/12_AES-CBC_session_787656_actions_artifact.zip",
+      "original_artifact_sha256": "ff09af749572a03aaeeb8892f85ec60dbee2df4b9c29516487dc9bb47d4fbb81"
+    },
+    {
+      "target": "AES-CTR",
+      "test_session": "787664",
+      "github_run_id": 43357212151,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43357212151",
+      "artifact_id": 14006373134,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T03:11:14.250891+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148911",
+          "algorithm": "ACVP-AES-CTR",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/13_AES-CTR_session_787664.json",
+      "sanitized_json_sha256": "29493040b3a0a219b7e3400f5ac9e00902dfde540053801948ea0e6e7594bb17",
+      "original_artifact": "archived_actions_artifacts/13_AES-CTR_session_787664_actions_artifact.zip",
+      "original_artifact_sha256": "55a8401bee157bcd5b245e629a8069303179712b13b56070d2be2d05ce2e20ae"
+    },
+    {
+      "target": "AES-GCM",
+      "test_session": "787665",
+      "github_run_id": 43359628131,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43359628131",
+      "artifact_id": 14007971275,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T03:32:36.638529+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148912",
+          "algorithm": "ACVP-AES-ECB",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148913",
+          "algorithm": "ACVP-AES-GCM",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/14_AES-GCM_session_787665.json",
+      "sanitized_json_sha256": "ff84de953e8ef25720b3f5b0367694e9117ab137e3e395ed7d21d5a03a90ddb6",
+      "original_artifact": "archived_actions_artifacts/14_AES-GCM_session_787665_actions_artifact.zip",
+      "original_artifact_sha256": "70f463695950052e762a45ffd23a41ed8b06e4f5e4f114ecd2a25e3caf152c70"
+    },
+    {
+      "target": "PBKDF",
+      "test_session": "787672",
+      "github_run_id": 43361501531,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43361501531",
+      "artifact_id": 14008068772,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T03:49:53.606524+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148920",
+          "algorithm": "SHA2-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148921",
+          "algorithm": "SHA2-384",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148922",
+          "algorithm": "SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148923",
+          "algorithm": "PBKDF",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/15_PBKDF_session_787672.json",
+      "sanitized_json_sha256": "75dfc05f963130a70fcad0b823726d694b97b2f5ffd01b20be465be22397e8cc",
+      "original_artifact": "archived_actions_artifacts/15_PBKDF_session_787672_actions_artifact.zip",
+      "original_artifact_sha256": "c49b70a11dffa613f7e16d54ad6ea766c3db1e0be86d5906202620b745114a58"
+    },
+    {
+      "target": "ML-KEM",
+      "test_session": "787673",
+      "github_run_id": 43363695106,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43363695106",
+      "artifact_id": 14008973552,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T04:10:10.435343+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148924",
+          "algorithm": "SHA3-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148925",
+          "algorithm": "SHA3-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148926",
+          "algorithm": "SHAKE-128",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148927",
+          "algorithm": "SHAKE-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148928",
+          "algorithm": "ML-KEM",
+          "mode": "keyGen",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148929",
+          "algorithm": "ML-KEM",
+          "mode": "encapDecap",
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/16_ML-KEM_session_787673.json",
+      "sanitized_json_sha256": "0d0cafe68270ac4ddf24201cf00df98ef408a8fc04841530493766cb846fa0fd",
+      "original_artifact": "archived_actions_artifacts/16_ML-KEM_session_787673_actions_artifact.zip",
+      "original_artifact_sha256": "4ac51a9b8bd63c667508d27c31cc6118abac0147e1e737ddfc49c534627a77d6"
+    },
+    {
+      "target": "ML-DSA",
+      "test_session": "787674",
+      "github_run_id": 43365698700,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43365698700",
+      "artifact_id": 14009803222,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T04:28:17.789392+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148930",
+          "algorithm": "SHAKE-128",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148931",
+          "algorithm": "SHAKE-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148932",
+          "algorithm": "ML-DSA",
+          "mode": "keyGen",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148933",
+          "algorithm": "ML-DSA",
+          "mode": "sigGen",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148934",
+          "algorithm": "ML-DSA",
+          "mode": "sigVer",
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/17_ML-DSA_session_787674.json",
+      "sanitized_json_sha256": "a50fc2c9c4e9b227b42a01652435dd9d2046fe895efb5e8d389cf013e3f04061",
+      "original_artifact": "archived_actions_artifacts/17_ML-DSA_session_787674_actions_artifact.zip",
+      "original_artifact_sha256": "90eb3fdd4df62aa330837a2fcf4e81755f1dfe7ef5d8876ecae27e350fea5ebb"
+    },
+    {
+      "target": "SLH-DSA",
+      "test_session": "787676",
+      "github_run_id": 43367485294,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43367485294",
+      "artifact_id": 14011351362,
+      "qsc_source_sha_workflow_pin": "43c8aa2afe9d38c3ddf9bac0107196545981ac28",
+      "timestamp_utc": "2026-11-13T04:45:07.751134+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4148936",
+          "algorithm": "SHAKE-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148937",
+          "algorithm": "SLH-DSA",
+          "mode": "keyGen",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148938",
+          "algorithm": "SLH-DSA",
+          "mode": "sigGen",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4148939",
+          "algorithm": "SLH-DSA",
+          "mode": "sigVer",
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/18_SLH-DSA_session_787676.json",
+      "sanitized_json_sha256": "6baef3e7098f9e9370bde7354369207a81bf9e0c609c6b16bac027d67785aa59",
+      "original_artifact": "archived_actions_artifacts/18_SLH-DSA_session_787676_actions_artifact.zip",
+      "original_artifact_sha256": "9d489912cc1e577bc4b1c7ba55ce89cc846d58b46b6365e686fdbdf96c451b35"
+    },
+    {
+      "target": "HMAC_DRBG-SHA2-512",
+      "test_session": "787980",
+      "github_run_id": 43501732560,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43501732560",
+      "artifact_id": 14073833546,
+      "qsc_source_sha_workflow_pin": "5d85f25866f9fa08654791265f08f43f95674a53",
+      "timestamp_utc": "2026-11-13T20:27:50.852304+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4151645",
+          "algorithm": "SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151646",
+          "algorithm": "HMAC-SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151647",
+          "algorithm": "hmacDRBG",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/19_HMAC_DRBG-SHA2-512_session_787980.json",
+      "sanitized_json_sha256": "d946a77b73393fdaf82ca97960cd1bc9c95a8015140e8de256a288bda5659e9a",
+      "original_artifact": "archived_actions_artifacts/19_HMAC_DRBG-SHA2-512_session_787980_actions_artifact.zip",
+      "original_artifact_sha256": "8bfc7e436f252f2454b33692fed2f7f603e250cd88a738477c18f22b0001ba8e"
+    },
+    {
+      "target": "KDA-HKDF",
+      "test_session": "787994",
+      "github_run_id": 43518311133,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43518311133",
+      "artifact_id": 14081996877,
+      "qsc_source_sha_workflow_pin": "5d85f25866f9fa08654791265f08f43f95674a53",
+      "timestamp_utc": "2026-11-13T22:19:42.755837+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4151871",
+          "algorithm": "SHA2-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151872",
+          "algorithm": "SHA2-384",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151873",
+          "algorithm": "SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151874",
+          "algorithm": "HMAC-SHA2-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151875",
+          "algorithm": "HMAC-SHA2-384",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151876",
+          "algorithm": "HMAC-SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151877",
+          "algorithm": "hmacDRBG",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151878",
+          "algorithm": "KDA-HKDF",
+          "mode": "HKDF",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151879",
+          "algorithm": "KDA-HKDF",
+          "mode": "HKDF",
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/20_KDA-HKDF_session_787994.json",
+      "sanitized_json_sha256": "597c562b74d63c0e2aaee844ae8f882132ac47cf05ef77e531f526886b1f4559",
+      "original_artifact": "archived_actions_artifacts/20_KDA-HKDF_session_787994_actions_artifact.zip",
+      "original_artifact_sha256": "a4c6e82d57f6c16b2edc14324b8350ba6d5d5924389dd62619a3c6f1f0350be3"
+    },
+    {
+      "target": "ECDSA",
+      "test_session": "787996",
+      "github_run_id": 43526926643,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43526926643",
+      "artifact_id": 14084969132,
+      "qsc_source_sha_workflow_pin": "5d85f25866f9fa08654791265f08f43f95674a53",
+      "timestamp_utc": "2026-11-13T23:25:16.176786+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4151888",
+          "algorithm": "SHA2-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151889",
+          "algorithm": "SHA2-384",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151890",
+          "algorithm": "SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151891",
+          "algorithm": "HMAC-SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151892",
+          "algorithm": "hmacDRBG",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151893",
+          "algorithm": "ECDSA",
+          "mode": "keyGen",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151894",
+          "algorithm": "ECDSA",
+          "mode": "keyVer",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151895",
+          "algorithm": "ECDSA",
+          "mode": "sigVer",
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/21_ECDSA_session_787996.json",
+      "sanitized_json_sha256": "4a79d73be1a08d27dab5763bedfb7ea19ef37e54bf8d5fabf326279841a63065",
+      "original_artifact": "archived_actions_artifacts/21_ECDSA_session_787996_actions_artifact.zip",
+      "original_artifact_sha256": "a54d8784303c03d74a94f0cfb956cda63111b3c30b409060ce1b590dd75feaa4"
+    },
+    {
+      "target": "DetECDSA",
+      "test_session": "787997",
+      "github_run_id": 43534002049,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43534002049",
+      "artifact_id": 14088173377,
+      "qsc_source_sha_workflow_pin": "5d85f25866f9fa08654791265f08f43f95674a53",
+      "timestamp_utc": "2026-11-14T00:25:14.071948+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4151896",
+          "algorithm": "SHA2-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151897",
+          "algorithm": "SHA2-384",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151898",
+          "algorithm": "SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151899",
+          "algorithm": "HMAC-SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151900",
+          "algorithm": "hmacDRBG",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151901",
+          "algorithm": "DetECDSA",
+          "mode": "sigGen",
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/22_DetECDSA_session_787997.json",
+      "sanitized_json_sha256": "fc2e8b10832610e7cb36cfc0d6cba7acb40f054585b569b15cb7e28431d09175",
+      "original_artifact": "archived_actions_artifacts/22_DetECDSA_session_787997_actions_artifact.zip",
+      "original_artifact_sha256": "7a54799649266bd4f67be862394fea487a43cfab74de8cca689a29d2703be2a3"
+    },
+    {
+      "target": "EDDSA",
+      "test_session": "788004",
+      "github_run_id": 43537644321,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43537644321",
+      "artifact_id": 14089938627,
+      "qsc_source_sha_workflow_pin": "5d85f25866f9fa08654791265f08f43f95674a53",
+      "timestamp_utc": "2026-11-14T00:59:12.400997+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4151950",
+          "algorithm": "SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151951",
+          "algorithm": "SHAKE-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151952",
+          "algorithm": "HMAC-SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151953",
+          "algorithm": "hmacDRBG",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151954",
+          "algorithm": "EDDSA",
+          "mode": "keyGen",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151955",
+          "algorithm": "EDDSA",
+          "mode": "keyVer",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151956",
+          "algorithm": "EDDSA",
+          "mode": "sigGen",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4151957",
+          "algorithm": "EDDSA",
+          "mode": "sigVer",
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/23_EDDSA_session_788004.json",
+      "sanitized_json_sha256": "a720d8f1591cb9bdedba85de1ae8b5013f7c7b5b543f6f2d3f216646a6b04f03",
+      "original_artifact": "archived_actions_artifacts/23_EDDSA_session_788004_actions_artifact.zip",
+      "original_artifact_sha256": "70b3926fedb88326f0f82f3c14588330d3a5aa970f984975991ed30803dbae4c"
+    },
+    {
+      "target": "XECDH",
+      "test_session": "788040",
+      "github_run_id": 43545312767,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43545312767",
+      "artifact_id": 14094165652,
+      "qsc_source_sha_workflow_pin": "5d85f25866f9fa08654791265f08f43f95674a53",
+      "timestamp_utc": "2026-11-14T02:16:37.788133+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4152263",
+          "algorithm": "SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152264",
+          "algorithm": "HMAC-SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152265",
+          "algorithm": "hmacDRBG",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152266",
+          "algorithm": "XECDH",
+          "mode": "keyGen",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152267",
+          "algorithm": "XECDH",
+          "mode": "keyVer",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152268",
+          "algorithm": "XECDH",
+          "mode": "SSC",
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/24_XECDH_session_788040.json",
+      "sanitized_json_sha256": "dff7cbe876740f44160245d7bf718d72e8008979c9d3335f3e8f8c9178716099",
+      "original_artifact": "archived_actions_artifacts/24_XECDH_session_788040_actions_artifact.zip",
+      "original_artifact_sha256": "1ba6b933743226d1579752f0aae39e45bc7cf766aa5af717056e2fdafc4ec3d2"
+    },
+    {
+      "target": "KAS-ECC-SSC",
+      "test_session": "788041",
+      "github_run_id": 43547438305,
+      "github_url": "https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43547438305",
+      "artifact_id": 14094666459,
+      "qsc_source_sha_workflow_pin": "5d85f25866f9fa08654791265f08f43f95674a53",
+      "timestamp_utc": "2026-11-14T02:39:08.267715+00:00",
+      "server_passed": true,
+      "status": "PASS_DEMO_SAMPLE",
+      "original_vector_verdict_statuses": [
+        "passed"
+      ],
+      "vector_sets": [
+        {
+          "id": "4152269",
+          "algorithm": "SHA2-256",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152270",
+          "algorithm": "SHA2-384",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152271",
+          "algorithm": "SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152272",
+          "algorithm": "HMAC-SHA2-512",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152273",
+          "algorithm": "hmacDRBG",
+          "mode": null,
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152274",
+          "algorithm": "ECDSA",
+          "mode": "keyGen",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152275",
+          "algorithm": "ECDSA",
+          "mode": "keyVer",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152276",
+          "algorithm": "ECDSA",
+          "mode": "sigVer",
+          "submission": "SUBMITTED"
+        },
+        {
+          "id": "4152277",
+          "algorithm": "KAS-ECC-SSC",
+          "mode": null,
+          "submission": "SUBMITTED"
+        }
+      ],
+      "sanitized_json": "sanitized_server_results/25_KAS-ECC-SSC_session_788041.json",
+      "sanitized_json_sha256": "59dee2293b21867f49178e24651a1ed7400f90c51274fb9211d7a957a9f3b6b5",
+      "original_artifact": "archived_actions_artifacts/25_KAS-ECC-SSC_session_788041_actions_artifact.zip",
+      "original_artifact_sha256": "0f33165e1ce6f40443aa4a072f434b364d911a587236f0f9c3f117cdaf08cb81"
+    }
+  ],
+  "caveats": [
+    "All 25 recorded test sessions used isSample:true. Passing these NIST Demo samples is not a CAVP certificate or CMVP module validation.",
+    "First SHA2-256 session 787624 declares server_passed true but preserves original vector_verdict_statuses=[\"incomplete\"]. Later independent server-passed SHA2-256 prerequisites, including sessions 787644 and 787994, contain [\"passed\"]. The original inconsistent field is retained unchanged.",
+    "Algorithms include repeated same-session prerequisites; 25 refers to distinct planned qualification targets, not count of unique submitted vector sets or certified certificates.",
+    "The immutable QSC source pins differ across two qualification cohorts. Do not describe all 25 runs as validating a single QSC source commit.",
+    "The archived artifacts contain sanitized client reports, not independently signed original NIST-issued certificates or full submitted response payloads.",
+    "GitHub Actions archive run URLs and artifacts can expire; this bundle retains verbatim artifact ZIPs and normalized JSON reports with SHA-256 checksums."
+  ]
+}

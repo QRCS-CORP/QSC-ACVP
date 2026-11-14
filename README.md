@@ -4,6 +4,14 @@ Independent cryptographic qualification adapters, offline tests, and GitHub-host
 
 QSC is checked out as an **external read-only dependency**, pinned separately for each run. This repository contains no production QSC cryptographic source files and does not modify the QSC repository.
 
+## Completed NIST ACVTS Demo sample qualification (November 2026)
+
+[![ACVTS Demo: 25/25 passed](https://img.shields.io/badge/ACVTS%20Demo-25%2F25%20passed-285f9b)](Source/ACVP/docs/evidence/2026-11/qualification-report.md)
+
+The completed campaign recorded **25 successful, separately approved NIST ACVTS Demo sample sessions**, **86 submitted vector sets** and **two immutable source-pinned QSC cohorts**. Every preserved client report records `PASS_DEMO_SAMPLE` and `server_passed: true`. See the [consolidated public qualification report](Source/ACVP/docs/evidence/2026-11/qualification-report.md), [complete session and vector-set manifest](Source/ACVP/docs/evidence/2026-11/evidence-manifest.json), and [compact CSV index](Source/ACVP/docs/evidence/2026-11/evidence-index.csv).
+
+These are **sample-mode conformance results, not NIST CAVP algorithm certificates or FIPS 140-3 module validation**. The original Actions artifacts have been separately archived. Earlier chronological sections below are retained as historical snapshots and may refer to work that was pending at the time; this completed qualification section supersedes those earlier progress statements.
+
 ## ACVTS Demo client — credential-free preparation
 
 The [ACVTS Demo client readiness guide](Source/ACVP/docs/acvts-demo-readiness.md) documents NIST Base64/HMAC-SHA256 TOTP authentication, scoped JWT renewal, bounded retry and large-response handling, and the protected GitHub environment configuration. The [credential-free Demo client protocol regression](.github/workflows/qsc-acvp-demo-readiness.yml) has achieved a [verified 32/32 PASS](https://github.com/QRCS-CORP/QSC-ACVP/actions/runs/43327458656), covering 26 protocol and six existing-session recovery tests, with no NIST network contact. The [authenticated SHA2-256 workflow](.github/workflows/qsc-acvp-demo.yml) is manual-only, requires an approved `acvts-demo` environment and explicit operator authorization, and performs only a sample session. Neither offline nor Demo testing is production CAVP certification.
